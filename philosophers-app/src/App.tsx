@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import './App.css';
 
 // --- 1. THE TYPEWRITER ---
+// speed is in ms per charather, default is 25ms
+// onComplete is a callback that will be called when the typewriter effect finishes,
+// ensuring the next philosopher's response starts after the current one is done generating
 const Typewriter = ({ text, speed = 25, onComplete }: { text: string, speed?: number, onComplete?: () => void }) => {
   const [displayedText, setDisplayedText] = useState("");
 
@@ -23,7 +26,7 @@ const Typewriter = ({ text, speed = 25, onComplete }: { text: string, speed?: nu
 
 // --- 2. DATA SHAPES ---
 interface ChatMessage {
-  id: number; // Unique ID to prevent the ghosting bug
+  id: number; // Unique ID
   philosopher: string;
   text: string;
   isNew: boolean;
@@ -49,6 +52,7 @@ function App() {
   }, []);
 
   // --- 3. THE CONTROL LOOP ---
+  // fetches the next response, shows "thinking" status, waits for typewriter to finish, then loops until debate is done.
   const startDebate = async () => {
     if (!inputValue) return;
     
@@ -97,6 +101,14 @@ function App() {
       setThinkingName(null);
     }
   };
+// --- 4. THE RENDER ---
+//returns the main structure, including imput box, images, question, and discussion log.
+
+// input section (question submission) with placeholder text and keyboard "enter" support
+// image grid with 4 philosophers, using the COLORS object for border colors   
+// discussion log that maps over the discussion state, showing philosopher name and text, with opacity fading for older messages  
+// thinking indicator that shows which philosopher is currently "thinking" with a single pulse animation
+// Opacity levels for chat bubbles are calculated based on their index in the discussion array, with newer messages appearing more opaque and older messages fading out, creating a visual hierarchy that emphasizes recent contributions while still showing the flow of the conversation.
 
   return (
     <div className="app-container">

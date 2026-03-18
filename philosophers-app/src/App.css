@@ -1,8 +1,7 @@
-/* App.css */
 body {
   margin: 0;
   padding: 0;
-  background-color: #000000; /* Pure Black for that 80s terminal look */
+  background-color: #000000;
   color: #f0f0f0;
   overflow-x: hidden;
 }
@@ -11,10 +10,10 @@ body {
   max-width: 1000px;
   margin: 0 auto;
   padding: 40px 20px;
-  font-family: 'Courier New', Courier, monospace; /* Essential for typewriter effect */
+  font-family: 'Courier New', Courier, monospace; 
 }
 
-/* Subtle Input at Top */
+/*Input Question, semi transp*/
 .input-section {
   display: flex;
   justify-content: center;
@@ -40,7 +39,7 @@ body {
   color: #fff;
 }
 
-/* The Four 1:1 Philosopher Squares from your Mockup */
+/* The Four 1:1 Philosopher images */
 .image-grid {
   display: flex;
   justify-content: center;
@@ -60,15 +59,14 @@ body {
   justify-content: center;
 }
 
-/* The actual Image file */
 .philosopher-frame img {
   width: 100%;
   height: 100%;
-  object-fit: cover; /* Ensures it fills the 1:1 square without stretching */
+  object-fit: cover; /* fills the 1:1 square without stretching */
   display: block;
 }
 
-/* The User's Question (The Pink Text) */
+/* The User Question */
 .submitted-question {
   text-align: center;
   color: #ff66cc; 
@@ -78,7 +76,7 @@ body {
   letter-spacing: 1px;
 }
 
-/* Discussion area (Reverse order: Newest at top) */
+/* Discussion area (Newest at top) */
 .discussion-log {
   display: flex;
   flex-direction: column;
@@ -101,7 +99,7 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* The Thinking Status with a SINGLE Pulse Animation */
+/* The Thinking Status with a single pulse Animation - remove? change? */
 .thinking-indicator {
   font-weight: bold;
   letter-spacing: 4px;
@@ -129,6 +127,6 @@ body {
 
 .philosopher-text {
   color: white;
-  white-space: pre-wrap; /* Keeps spaces/newlines for that terminal feel */
+  white-space: pre-wrap;
   word-break: break-word;
 }
