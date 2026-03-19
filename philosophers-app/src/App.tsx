@@ -114,13 +114,17 @@ function App() {
       if (e.code === 'Space' && !e.repeat && document.activeElement?.tagName !== 'INPUT') {
         e.preventDefault(); // Stop the page from scrolling down
         
-        debateActiveRef.current = false; // 1. Mute the philosophers instantly
-        setDiscussion([]); // Clear the board
+        debateActiveRef.current = false;
+        setDiscussion([]);
         setThinkingName(null);
         setIsListening(true);
         setLiveTranscript("");
         liveTranscriptRef.current = "";
         setSubmittedQuestion("");
+
+        fetch(`${BASE_URL}question`, {
+          method: 'DELETE'
+        }).catch(console.error);
 
         try {
           recognitionRef.current?.start(); // 2. Start recording
