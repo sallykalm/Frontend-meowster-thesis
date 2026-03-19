@@ -62,6 +62,9 @@ const COLORS: Record<string, string> = {
   "Moderator": "#FFFFFF" 
 };
 
+const PORT = 8001;
+const BASE_URL = `http://localhost:${PORT}/api/`;
+
 function App() {
   const [inputValue, setInputValue] = useState("");
   const [submittedQuestion, setSubmittedQuestion] = useState("");
@@ -79,7 +82,7 @@ function App() {
 
   // Wake up backend and setup Speech Recognition
   useEffect(() => {
-    fetch('http://localhost:8000/api/philosophers').catch(console.error);
+    fetch(`${BASE_URL}philosophers`).catch(console.error);
 
     // Initialize the Microphone API
     if (SpeechRecognition) {
@@ -159,7 +162,7 @@ function App() {
     debateActiveRef.current = true; // Turn the debate engine back on
 
     try {
-      await fetch('http://localhost:8000/api/question', {
+      await fetch(`${BASE_URL}question`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: questionText })
@@ -170,7 +173,7 @@ function App() {
       // NOTICE: We now check debateActiveRef.current. 
       // If you press spacebar, this becomes false and instantly breaks the loop!
       while (!finished && debateActiveRef.current) {
-        const response = await fetch('http://localhost:8000/api/next-response');
+        const response = await fetch(`${BASE_URL}next-response`);
         if (!response.ok) break;
         const data = await response.json();
 
