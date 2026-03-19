@@ -1,5 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './App.css';
+
+// --- TS Declarations for Web Speech API ---
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 // --- 1. THE TYPEWRITER ---
 // speed is in ms per charather, default is 25ms
@@ -7,26 +16,38 @@ import './App.css';
 // ensuring the next philosopher's response starts after the current one is done generating
 const Typewriter = ({ text, speed = 25, onComplete }: { text: string, speed?: number, onComplete?: () => void }) => {
   const [displayedText, setDisplayedText] = useState("");
+  
+  // We use a ref for the index to ensure it is perfectly in sync with the timer
+  const indexRef = useRef(0);
 
   useEffect(() => {
-    let i = 0;
+    // RESET: Clear everything when the text changes
+    setDisplayedText("");
+    indexRef.current = 0;
+
     const timer = setInterval(() => {
-      setDisplayedText((prev) => prev + text.charAt(i));
-      i++;
-      if (i >= text.length) {
+      // Safety check: Don't go past the text length
+      if (indexRef.current < text.length) {
+        const nextChar = text.charAt(indexRef.current);
+        setDisplayedText((prev) => prev + nextChar);
+        indexRef.current += 1;
+      } else {
         clearInterval(timer);
         if (onComplete) onComplete();
       }
     }, speed);
-    return () => clearInterval(timer);
-  }, [text, speed, onComplete]);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [text, speed]); // Re-run if text changes
 
   return <span>{displayedText}</span>;
 };
 
 // --- 2. DATA SHAPES ---
 interface ChatMessage {
-  id: number; // Unique ID
+  id: number;
   philosopher: string;
   text: string;
   isNew: boolean;
@@ -47,51 +68,138 @@ function App() {
   const [discussion, setDiscussion] = useState<ChatMessage[]>([]);
   const [thinkingName, setThinkingName] = useState<string | null>(null);
 
+  // --- NEW: Audio State Variables ---
+  const [isListening, setIsListening] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState("");
+  
+  // Refs to keep track of state inside event listeners without causing infinite re-renders
+  const recognitionRef = useRef<any>(null);
+  const liveTranscriptRef = useRef(""); 
+  const debateActiveRef = useRef(false); // stops  the philosophers' responses
+
+  // Wake up backend and setup Speech Recognition
   useEffect(() => {
     fetch('http://localhost:8000/api/philosophers').catch(console.error);
+
+    // Initialize the Microphone API
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true; 
+      recognition.interimResults = true; // Shows text *while* you speak
+      recognition.lang = 'en-US'; // Change this if you speak another language!
+
+      recognition.onresult = (event: any) => {
+        let currentTranscript = '';
+        // Gather all the words spoken so far
+        for (let i = 0; i < event.results.length; i++) {
+          currentTranscript += event.results[i][0].transcript;
+        }
+        setLiveTranscript(currentTranscript);
+        liveTranscriptRef.current = currentTranscript; // Save to Ref for the KeyUp event
+      };
+
+      recognitionRef.current = recognition;
+    } else {
+      console.warn("Speech Recognition not supported in this browser. Use Chrome/Edge.");
+    }
   }, []);
 
-  // --- 3. THE CONTROL LOOP ---
-  // fetches the next response, shows "thinking" status, waits for typewriter to finish, then loops until debate is done.
-  const startDebate = async () => {
-    if (!inputValue) return;
+  // --- NEW: Spacebar Controls ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // If Spacebar is pressed, not held continuously, and we aren't typing in the input box
+      if (e.code === 'Space' && !e.repeat && document.activeElement?.tagName !== 'INPUT') {
+        e.preventDefault(); // Stop the page from scrolling down
+        
+        debateActiveRef.current = false; // 1. Mute the philosophers instantly
+        setDiscussion([]); // Clear the board
+        setThinkingName(null);
+        setIsListening(true);
+        setLiveTranscript("");
+        liveTranscriptRef.current = "";
+        setSubmittedQuestion("");
+
+        try {
+          recognitionRef.current?.start(); // 2. Start recording
+        } catch (err) { /* Ignore if already started */ }
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && document.activeElement?.tagName !== 'INPUT') {
+        e.preventDefault();
+        
+        setIsListening(false);
+        recognitionRef.current?.stop(); // 1. Stop recording
+
+        // 2. Submit whatever was recorded
+        const finalSpokenText = liveTranscriptRef.current.trim();
+        if (finalSpokenText) {
+          startDebate(finalSpokenText);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  // --- 3. THE CONTROL LOOP (Modified to accept text directly) ---
+    // fetches the next response, shows "thinking" status, waits for typewriter to finish, then loops until debate is done.
+  const startDebate = async (questionText: string) => {
+    if (!questionText) return;
     
-    setSubmittedQuestion(inputValue);
+    setSubmittedQuestion(questionText);
     setInputValue("");
     setDiscussion([]);
+    debateActiveRef.current = true; // Turn the debate engine back on
 
     try {
       await fetch('http://localhost:8000/api/question', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: inputValue })
+        body: JSON.stringify({ text: questionText })
       });
       
       let finished = false;
-      while (!finished) {
+      
+      // NOTICE: We now check debateActiveRef.current. 
+      // If you press spacebar, this becomes false and instantly breaks the loop!
+      while (!finished && debateActiveRef.current) {
         const response = await fetch('http://localhost:8000/api/next-response');
         if (!response.ok) break;
         const data = await response.json();
 
-        // A. Show Thinking status
+        if (!debateActiveRef.current) break; // Double check in case spacebar was pressed during fetch
+
         setThinkingName(data.philosopher);
         await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        if (!debateActiveRef.current) break; // Triple check after the delay
+
         setThinkingName(null);
 
-        // B. Wait for Typewriter to finish
         await new Promise<void>((resolve) => {
           const newMessage: ChatMessage = {
-            id: Date.now() + Math.random(), // Guaranteed unique ID
+            id: Date.now() + Math.random(),
             philosopher: data.philosopher,
             text: data.text,
             isNew: true,
             onComplete: () => resolve() 
           };
 
-          setDiscussion(prev => [
-            newMessage,
-            ...prev.map(m => ({ ...m, isNew: false }))
-          ]);
+          if (debateActiveRef.current) {
+            setDiscussion(prev => [
+              newMessage,
+              ...prev.map(m => ({ ...m, isNew: false }))
+            ]);
+          } else {
+            resolve(); // Escape the promise if interrupted
+          }
         });
 
         if (data.is_last) finished = true;
@@ -101,9 +209,9 @@ function App() {
       setThinkingName(null);
     }
   };
-// --- 4. THE RENDER ---
-//returns the main structure, including imput box, images, question, and discussion log.
 
+  // --- 4. THE RENDER ---
+//returns the main structure, including imput box, images, question, and discussion log.
 // input section (question submission) with placeholder text and keyboard "enter" support
 // image grid with 4 philosophers, using the COLORS object for border colors   
 // discussion log that maps over the discussion state, showing philosopher name and text, with opacity fading for older messages  
@@ -116,8 +224,14 @@ function App() {
         <input 
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
-          placeholder="[ awaiting voice input ]"
-          onKeyDown={(e) => { if(e.key === 'Enter') startDebate(); }}
+          placeholder="[ press SPACE to speak, or type here ]"
+          onKeyDown={(e) => { 
+            if(e.key === 'Enter') {
+              startDebate(inputValue);
+              // Ensure we blur the input so spacebar works for talking again
+              (e.target as HTMLInputElement).blur(); 
+            } 
+          }}
         />
       </div>
 
@@ -136,10 +250,18 @@ function App() {
         </div>
       </div>
 
-      {submittedQuestion && <div className="submitted-question">{submittedQuestion}</div>}
+      {/* NEW: Voice Interface Display */}
+      {isListening ? (
+        <div className="voice-interface">
+          <div className="recording-indicator">● RECORDING_AUDIO_FEED</div>
+          <div className="live-transcript">{liveTranscript || "..."}</div>
+        </div>
+      ) : (
+        submittedQuestion && <div className="submitted-question">{submittedQuestion}</div>
+      )}
 
       <div className="discussion-log">
-        {thinkingName && (
+        {thinkingName && !isListening && (
           <div className="thinking-indicator" style={{ color: COLORS[thinkingName] }}>
             {thinkingName.toUpperCase()} IS THINKING...
           </div>
