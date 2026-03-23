@@ -11,22 +11,16 @@ declare global {
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 // --- 1. THE TYPEWRITER ---
-// speed is in ms per charather, default is 25ms
-// onComplete is a callback that will be called when the typewriter effect finishes,
-// ensuring the next philosopher's response starts after the current one is done generating
 const Typewriter = ({ text, speed = 25, onComplete }: { text: string, speed?: number, onComplete?: () => void }) => {
   const [displayedText, setDisplayedText] = useState("");
   
-  // We use a ref for the index to ensure it is perfectly in sync with the timer
   const indexRef = useRef(0);
 
   useEffect(() => {
-    // RESET: Clear everything when the text changes
     setDisplayedText("");
     indexRef.current = 0;
 
     const timer = setInterval(() => {
-      // Safety check: Don't go past the text length
       if (indexRef.current < text.length) {
         const nextChar = text.charAt(indexRef.current);
         setDisplayedText((prev) => prev + nextChar);
@@ -40,7 +34,7 @@ const Typewriter = ({ text, speed = 25, onComplete }: { text: string, speed?: nu
     return () => {
       clearInterval(timer);
     };
-  }, [text, speed]); // Re-run if text changes
+  }, [text, speed]); 
 
   return <span>{displayedText}</span>;
 };
@@ -62,7 +56,7 @@ const COLORS: Record<string, string> = {
   "Moderator": "#FFFFFF" 
 };
 
-const PORT = 8001;
+const PORT = 8000;
 const BASE_URL = `http://localhost:${PORT}/api/`;
 
 function App() {
@@ -75,30 +69,29 @@ function App() {
   const [isListening, setIsListening] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
   
-  // Refs to keep track of state inside event listeners without causing infinite re-renders
+  // --- NEW: Image Toggle State ---
+  const [useAltImages, setUseAltImages] = useState(false);
+  
   const recognitionRef = useRef<any>(null);
   const liveTranscriptRef = useRef(""); 
-  const debateActiveRef = useRef(false); // stops  the philosophers' responses
+  const debateActiveRef = useRef(false);
 
-  // Wake up backend and setup Speech Recognition
   useEffect(() => {
     fetch(`${BASE_URL}philosophers`).catch(console.error);
 
-    // Initialize the Microphone API
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
       recognition.continuous = true; 
-      recognition.interimResults = true; // Shows text *while* you speak
-      recognition.lang = 'en-US'; // Change this if you speak another language!
+      recognition.interimResults = true; 
+      recognition.lang = 'en-US'; 
 
       recognition.onresult = (event: any) => {
         let currentTranscript = '';
-        // Gather all the words spoken so far
         for (let i = 0; i < event.results.length; i++) {
           currentTranscript += event.results[i][0].transcript;
         }
         setLiveTranscript(currentTranscript);
-        liveTranscriptRef.current = currentTranscript; // Save to Ref for the KeyUp event
+        liveTranscriptRef.current = currentTranscript; 
       };
 
       recognitionRef.current = recognition;
@@ -107,12 +100,18 @@ function App() {
     }
   }, []);
 
-  // --- NEW: Spacebar Controls ---
+  // --- Keyboard Controls ---
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // If Spacebar is pressed, not held continuously, and we aren't typing in the input box
+      // 1. Check for the 'R' key to toggle images (ignore if typing in the input box)
+      if ((e.key === 'r' || e.key === 'R') && document.activeElement?.tagName !== 'INPUT') {
+        setUseAltImages((prev) => !prev); // Flips between true/false
+        return; 
+      }
+
+      // 2. Check for Spacebar (Voice Recording)
       if (e.code === 'Space' && !e.repeat && document.activeElement?.tagName !== 'INPUT') {
-        e.preventDefault(); // Stop the page from scrolling down
+        e.preventDefault(); 
         
         debateActiveRef.current = false;
         setDiscussion([]);
@@ -127,7 +126,7 @@ function App() {
         }).catch(console.error);
 
         try {
-          recognitionRef.current?.start(); // 2. Start recording
+          recognitionRef.current?.start(); 
         } catch (err) { /* Ignore if already started */ }
       }
     };
@@ -137,9 +136,8 @@ function App() {
         e.preventDefault();
         
         setIsListening(false);
-        recognitionRef.current?.stop(); // 1. Stop recording
+        recognitionRef.current?.stop(); 
 
-        // 2. Submit whatever was recorded
         const finalSpokenText = liveTranscriptRef.current.trim();
         if (finalSpokenText) {
           startDebate(finalSpokenText);
@@ -155,15 +153,14 @@ function App() {
     };
   }, []);
 
-  // --- 3. THE CONTROL LOOP (Modified to accept text directly) ---
-    // fetches the next response, shows "thinking" status, waits for typewriter to finish, then loops until debate is done.
+  // --- 3. THE CONTROL LOOP ---
   const startDebate = async (questionText: string) => {
     if (!questionText) return;
     
     setSubmittedQuestion(questionText);
     setInputValue("");
     setDiscussion([]);
-    debateActiveRef.current = true; // Turn the debate engine back on
+    debateActiveRef.current = true; 
 
     try {
       await fetch(`${BASE_URL}question`, {
@@ -174,19 +171,17 @@ function App() {
       
       let finished = false;
       
-      // NOTICE: We now check debateActiveRef.current. 
-      // If you press spacebar, this becomes false and instantly breaks the loop!
       while (!finished && debateActiveRef.current) {
         const response = await fetch(`${BASE_URL}next-response`);
         if (!response.ok) break;
         const data = await response.json();
 
-        if (!debateActiveRef.current) break; // Double check in case spacebar was pressed during fetch
+        if (!debateActiveRef.current) break; 
 
         setThinkingName(data.philosopher);
         await new Promise(resolve => setTimeout(resolve, 2000));
         
-        if (!debateActiveRef.current) break; // Triple check after the delay
+        if (!debateActiveRef.current) break; 
 
         setThinkingName(null);
 
@@ -205,7 +200,7 @@ function App() {
               ...prev.map(m => ({ ...m, isNew: false }))
             ]);
           } else {
-            resolve(); // Escape the promise if interrupted
+            resolve(); 
           }
         });
 
@@ -218,13 +213,6 @@ function App() {
   };
 
   // --- 4. THE RENDER ---
-//returns the main structure, including imput box, images, question, and discussion log.
-// input section (question submission) with placeholder text and keyboard "enter" support
-// image grid with 4 philosophers, using the COLORS object for border colors   
-// discussion log that maps over the discussion state, showing philosopher name and text, with opacity fading for older messages  
-// thinking indicator that shows which philosopher is currently "thinking" with a single pulse animation
-// Opacity levels for chat bubbles are calculated based on their index in the discussion array, with newer messages appearing more opaque and older messages fading out, creating a visual hierarchy that emphasizes recent contributions while still showing the flow of the conversation.
-
   return (
     <div className="app-container">
       <div className="input-section">
@@ -235,7 +223,6 @@ function App() {
           onKeyDown={(e) => { 
             if(e.key === 'Enter') {
               startDebate(inputValue);
-              // Ensure we blur the input so spacebar works for talking again
               (e.target as HTMLInputElement).blur(); 
             } 
           }}
@@ -243,24 +230,27 @@ function App() {
       </div>
 
       <div className="image-grid">
-        <div className="philosopher-frame" style={{ borderColor: COLORS.Weizenbaum }}>
-          <img src="/images/weizenbaum.png" alt="Weizenbaum" />
+        <div className="philosopher-frame">
+          {/* Swaps between weizenbaum.png and test1.png */}
+          <img src={useAltImages ? "/images/test1.png" : "/images/weizenbaum.png"} alt="Weizenbaum" />
         </div>
-        <div className="philosopher-frame" style={{ borderColor: COLORS.Flusser }}>
-          <img src="/images/flusser.png" alt="Flusser" />
+        <div className="philosopher-frame">
+          {/* Swaps between flusser.png and test2.gif */}
+          <img src={useAltImages ? "/images/test2.gif" : "/images/flusser.png"} alt="Flusser" />
         </div>
-        <div className="philosopher-frame" style={{ borderColor: COLORS.Weibel }}>
-          <img src="/images/weibel.png" alt="Weibel" />
+        <div className="philosopher-frame">
+          {/* Swaps between weibel.png and test3.gif */}
+          <img src={useAltImages ? "/images/test3.gif" : "/images/weibel.png"} alt="Weibel" />
         </div>
-        <div className="philosopher-frame" style={{ borderColor: COLORS.Virilio }}>
-          <img src="/images/virilio.png" alt="Virilio" />
+        <div className="philosopher-frame">
+          {/* Swaps between virilio.png and test4.png */}
+          <img src={useAltImages ? "/images/test4.png" : "/images/virilio.png"} alt="Virilio" />
         </div>
       </div>
 
-      {/* NEW: Voice Interface Display */}
       {isListening ? (
         <div className="voice-interface">
-          <div className="recording-indicator">● RECORDING_AUDIO_FEED</div>
+          <div className="recording-indicator">● RECORDING_QUESTION</div>
           <div className="live-transcript">{liveTranscript || "..."}</div>
         </div>
       ) : (
