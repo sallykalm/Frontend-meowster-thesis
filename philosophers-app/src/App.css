@@ -49,6 +49,22 @@ body {
   margin-bottom: 60px;
 }
 
+/* Container for the Frame + The Name below it */
+.philosopher-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px; /* Space between image and text */
+}
+
+/* The styling for the Surnames */
+.philosopher-label {
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: bold;
+  font-size: 1.2rem;
+  letter-spacing: 2px;
+}
+
 /* The Frame around the image */
 .philosopher-frame {
   width: 400px;

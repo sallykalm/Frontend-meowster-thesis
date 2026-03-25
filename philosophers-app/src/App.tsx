@@ -65,12 +65,13 @@ function App() {
   const [discussion, setDiscussion] = useState<ChatMessage[]>([]);
   const [thinkingName, setThinkingName] = useState<string | null>(null);
 
-  // --- NEW: Audio State Variables ---
+// --- NEW: Audio State Variables ---
   const [isListening, setIsListening] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
   
-  // --- NEW: Image Toggle State ---
-  const [useAltImages, setUseAltImages] = useState(false);
+  // --- UPDATED: Image Toggle & Typing States ---
+  const [imageSet, setImageSet] = useState<number>(1); // Tracks sets 1, 2, 3, 4
+  const [typingPhilosopher, setTypingPhilosopher] = useState<string | null>(null); // Tracks who is currently generating text
   
   const recognitionRef = useRef<any>(null);
   const liveTranscriptRef = useRef(""); 
@@ -102,10 +103,10 @@ function App() {
 
   // --- Keyboard Controls ---
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // 1. Check for the 'R' key to toggle images (ignore if typing in the input box)
-      if ((e.key === 'r' || e.key === 'R') && document.activeElement?.tagName !== 'INPUT') {
-        setUseAltImages((prev) => !prev); // Flips between true/false
+      const handleKeyDown = (e: KeyboardEvent) => {
+      // 1. Check for keys 1, 2, 3, or 4 to toggle image sets
+      if (['1', '2', '3', '4'].includes(e.key) && document.activeElement?.tagName !== 'INPUT') {
+        setImageSet(parseInt(e.key, 10)); // Converts the string '1' to the number 1
         return; 
       }
 
@@ -184,6 +185,7 @@ function App() {
         if (!debateActiveRef.current) break; 
 
         setThinkingName(null);
+        setTypingPhilosopher(data.philosopher); // START THE GIF
 
         await new Promise<void>((resolve) => {
           const newMessage: ChatMessage = {
@@ -191,7 +193,10 @@ function App() {
             philosopher: data.philosopher,
             text: data.text,
             isNew: true,
-            onComplete: () => resolve() 
+            onComplete: () => {
+              setTypingPhilosopher(null); // STOP THE GIF when typewriter finishes
+              resolve(); 
+            }
           };
 
           if (debateActiveRef.current) {
@@ -200,10 +205,11 @@ function App() {
               ...prev.map(m => ({ ...m, isNew: false }))
             ]);
           } else {
+            setTypingPhilosopher(null); // Failsafe stop
             resolve(); 
           }
         });
-
+      
         if (data.is_last) finished = true;
       }
     } catch (err) {
@@ -230,22 +236,29 @@ function App() {
       </div>
 
       <div className="image-grid">
-        <div className="philosopher-frame">
-          {/* Swaps between weizenbaum.png and test1.png */}
-          <img src={useAltImages ? "/images/test1.png" : "/images/weizenbaum.png"} alt="Weizenbaum" />
-        </div>
-        <div className="philosopher-frame">
-          {/* Swaps between flusser.png and test2.gif */}
-          <img src={useAltImages ? "/images/test2.gif" : "/images/flusser.png"} alt="Flusser" />
-        </div>
-        <div className="philosopher-frame">
-          {/* Swaps between weibel.png and test3.gif */}
-          <img src={useAltImages ? "/images/test3.gif" : "/images/weibel.png"} alt="Weibel" />
-        </div>
-        <div className="philosopher-frame">
-          {/* Swaps between virilio.png and test4.png */}
-          <img src={useAltImages ? "/images/test4.png" : "/images/virilio.png"} alt="Virilio" />
-        </div>
+        {['Weizenbaum', 'Flusser', 'Weibel', 'Virilio'].map((name) => {
+          // Check if this specific philosopher is currently generating text
+          const isTyping = typingPhilosopher === name;
+          const lowerName = name.toLowerCase();
+          
+          // Logic: Only Set 1 has GIFs. And the GIF only plays while they are actively typing.
+          const isGif = imageSet === 1 && isTyping;
+          const extension = isGif ? 'gif' : 'png';
+          
+          // Builds the filename (e.g., /images/weizenbaum1.gif or /images/flusser3.png)
+          const imgSrc = `/images/${lowerName}${imageSet}.${extension}`;
+
+          return (
+            <div className="philosopher-column" key={name}>
+              <div className="philosopher-frame">
+                <img src={imgSrc} alt={name} />
+              </div>
+              <div className="philosopher-label" style={{ color: COLORS[name] }}>
+                {name.toUpperCase()}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {isListening ? (
