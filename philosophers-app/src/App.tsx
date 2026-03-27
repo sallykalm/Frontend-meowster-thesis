@@ -11,7 +11,7 @@ declare global {
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 // --- 1. THE TYPEWRITER ---
-const Typewriter = ({ text, speed = 25, onComplete }: { text: string, speed?: number, onComplete?: () => void }) => {
+const Typewriter = ({ text, speed = 75, onComplete }: { text: string, speed?: number, onComplete?: () => void }) => {
   const [displayedText, setDisplayedText] = useState("");
   
   const indexRef = useRef(0);
@@ -49,11 +49,19 @@ interface ChatMessage {
 }
 
 const COLORS: Record<string, string> = {
-  "Flusser": "#FA4616",
-  "Weizenbaum": "#97D700",
-  "Virilio": "#E0E721",
-  "Weibel": "#8DC8E8",
+  "Flusser-AI": "#FA4616",
+  "Weizenbaum-AI": "#97D700",
+  "Virilio-AI": "#E0E721",
+  "Weibel-AI": "#8DC8E8",
   "Moderator": "#FFFFFF" 
+};
+
+const PHILOSOPHER_CONFIG: Record<string, { displayName: string, filePrefix: string }> = {
+  "Flusser": { displayName: "Flusser-AI", filePrefix: "flusser" },
+  "Weizenbaum": { displayName: "Weizenbaum-AI", filePrefix: "weizenbaum" },
+  "Virilio": { displayName: "Virilio-AI", filePrefix: "virilio" },
+  "Weibel": { displayName: "Weibel-AI", filePrefix: "weibel" },
+  "Moderator": { displayName: "Moderator", filePrefix: "moderator" }
 };
 
 const PORT = 8000;
@@ -153,7 +161,7 @@ function App() {
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, []);
-
+  
   // --- 3. THE CONTROL LOOP ---
   const startDebate = async (questionText: string) => {
     if (!questionText) return;
@@ -179,22 +187,26 @@ function App() {
 
         if (!debateActiveRef.current) break; 
 
-        setThinkingName(data.philosopher);
+                // TRANSLATE THE NAME HERE: "Flusser" -> "Flusser-AI"
+        const config = PHILOSOPHER_CONFIG[data.philosopher];
+        const displayName = config ? config.displayName : data.philosopher;
+
+        setThinkingName(displayName);
         await new Promise(resolve => setTimeout(resolve, 2000));
         
         if (!debateActiveRef.current) break; 
 
         setThinkingName(null);
-        setTypingPhilosopher(data.philosopher); // START THE GIF
+        setTypingPhilosopher(displayName); // Start the GIF
 
         await new Promise<void>((resolve) => {
           const newMessage: ChatMessage = {
             id: Date.now() + Math.random(),
-            philosopher: data.philosopher,
+            philosopher: displayName, // Saves "Flusser-AI" to the chat log!
             text: data.text,
             isNew: true,
             onComplete: () => {
-              setTypingPhilosopher(null); // STOP THE GIF when typewriter finishes
+              setTypingPhilosopher(null); // Stop the GIF
               resolve(); 
             }
           };
@@ -236,25 +248,25 @@ function App() {
       </div>
 
       <div className="image-grid">
-        {['Weizenbaum', 'Flusser', 'Weibel', 'Virilio'].map((name) => {
-          // Check if this specific philosopher is currently generating text
-          const isTyping = typingPhilosopher === name;
-          const lowerName = name.toLowerCase();
+        {['Weizenbaum', 'Flusser', 'Weibel', 'Virilio'].map((baseName) => {
+          const config = PHILOSOPHER_CONFIG[baseName];
           
-          // Logic: Only Set 1 has GIFs. And the GIF only plays while they are actively typing.
+          // isTyping checks against the "-AI" name now
+          const isTyping = typingPhilosopher === config.displayName;
           const isGif = imageSet === 1 && isTyping;
           const extension = isGif ? 'gif' : 'png';
           
-          // Builds the filename (e.g., /images/weizenbaum1.gif or /images/flusser3.png)
-          const imgSrc = `/images/${lowerName}${imageSet}.${extension}`;
+          // Builds the image path (e.g., /images/flusser1.gif)
+          const imgSrc = `/images/${config.filePrefix}${imageSet}.${extension}`;
 
           return (
-            <div className="philosopher-column" key={name}>
-              <div className="philosopher-frame">
-                <img src={imgSrc} alt={name} />
+            <div className="philosopher-column" key={baseName}>
+              {/* Uses your original COLORS object based on the "-AI" name */}
+              <div className="philosopher-frame" style={{ borderColor: COLORS[config.displayName] }}>
+                <img src={imgSrc} alt={config.displayName} />
               </div>
-              <div className="philosopher-label" style={{ color: COLORS[name] }}>
-                {name.toUpperCase()}
+              <div className="philosopher-label" style={{ color: COLORS[config.displayName] }}>
+                {config.displayName.toUpperCase()}
               </div>
             </div>
           );
