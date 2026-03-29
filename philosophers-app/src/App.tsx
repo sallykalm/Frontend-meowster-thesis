@@ -64,7 +64,7 @@ const PHILOSOPHER_CONFIG: Record<string, { displayName: string, filePrefix: stri
   "Moderator": { displayName: "Moderator", filePrefix: "moderator" }
 };
 
-const PORT = 8000;
+const PORT = 15567;
 const BASE_URL = `http://localhost:${PORT}/api/`;
 
 function App() {
@@ -182,6 +182,7 @@ function App() {
       
       while (!finished && debateActiveRef.current) {
         const response = await fetch(`${BASE_URL}next-response`);
+        if (response.status === 504) continue; // still waiting for LLM, keep polling
         if (!response.ok) break;
         const data = await response.json();
 
