@@ -165,11 +165,18 @@ function App() {
   // --- 3. THE CONTROL LOOP ---
   const startDebate = async (questionText: string) => {
     if (!questionText) return;
-    
+
+    debateActiveRef.current = false;
+    setDiscussion([]);
+    setThinkingName(null);
+    setTypingPhilosopher(null);
+
+    await fetch(`${BASE_URL}question`, { method: 'DELETE' }).catch(console.error);
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     setSubmittedQuestion(questionText);
     setInputValue("");
-    setDiscussion([]);
-    debateActiveRef.current = true; 
+    debateActiveRef.current = true;
 
     try {
       await fetch(`${BASE_URL}question`, {
