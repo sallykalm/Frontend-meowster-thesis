@@ -1,5 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
+import type { ChatMessage } from './DiscussionLog';
 import './App.css';
+
+import InputSection from './InputSection';
+import ImageGrid from './ImageGrid';
+import DiscussionLog from './DiscussionLog';
+import VoiceIndicator from './VoiceIndicator';
+
+import { PHILOSOPHER_CONFIG } from './constants';
+import { fetchPhilosophers, submitQuestion, clearQuestion, getNextResponse } from './api';
 
 // --- TS Declarations for Web Speech API ---
 declare global {
@@ -10,83 +19,23 @@ declare global {
 }
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-// --- 1. THE TYPEWRITER ---
-const Typewriter = ({ text, speed = 75, onComplete }: { text: string, speed?: number, onComplete?: () => void }) => {
-  const [displayedText, setDisplayedText] = useState("");
-  
-  const indexRef = useRef(0);
-
-  useEffect(() => {
-    setDisplayedText("");
-    indexRef.current = 0;
-
-    const timer = setInterval(() => {
-      if (indexRef.current < text.length) {
-        const nextChar = text.charAt(indexRef.current);
-        setDisplayedText((prev) => prev + nextChar);
-        indexRef.current += 1;
-      } else {
-        clearInterval(timer);
-        if (onComplete) onComplete();
-      }
-    }, speed);
-
-    return () => {
-      clearInterval(timer);
-    };
-  }, [text, speed]); 
-
-  return <span>{displayedText}</span>;
-};
-
-// --- 2. DATA SHAPES ---
-interface ChatMessage {
-  id: number;
-  philosopher: string;
-  text: string;
-  isNew: boolean;
-  onComplete?: () => void;
-}
-
-const COLORS: Record<string, string> = {
-  "Flusser-AI": "#FA4616",
-  "Weizenbaum-AI": "#97D700",
-  "Virilio-AI": "#E0E721",
-  "Weibel-AI": "#8DC8E8",
-  "Moderator": "#FFFFFF" 
-};
-
-const PHILOSOPHER_CONFIG: Record<string, { displayName: string, filePrefix: string }> = {
-  "Flusser": { displayName: "Flusser-AI", filePrefix: "flusser" },
-  "Weizenbaum": { displayName: "Weizenbaum-AI", filePrefix: "weizenbaum" },
-  "Virilio": { displayName: "Virilio-AI", filePrefix: "virilio" },
-  "Weibel": { displayName: "Weibel-AI", filePrefix: "weibel" },
-  "Moderator": { displayName: "Moderator", filePrefix: "moderator" }
-};
-
-const PORT = 15567;
-const BASE_URL = `http://localhost:${PORT}/api/`;
-
 function App() {
   const [inputValue, setInputValue] = useState("");
   const [submittedQuestion, setSubmittedQuestion] = useState("");
   const [discussion, setDiscussion] = useState<ChatMessage[]>([]);
   const [thinkingName, setThinkingName] = useState<string | null>(null);
-
-// --- NEW: Audio State Variables ---
   const [isListening, setIsListening] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
-  
-  // --- UPDATED: Image Toggle & Typing States ---
-  const [imageSet, setImageSet] = useState<number>(1); // Tracks sets 1, 2, 3, 4
-  const [typingPhilosopher, setTypingPhilosopher] = useState<string | null>(null); // Tracks who is currently generating text
+  const [imageSet, setImageSet] = useState<number>(1);
+  const [typingPhilosopher, setTypingPhilosopher] = useState<string | null>(null);
   
   const recognitionRef = useRef<any>(null);
   const liveTranscriptRef = useRef(""); 
   const debateActiveRef = useRef(false);
 
+  // Initialize Web Speech API and fetch philosophers
   useEffect(() => {
-    fetch(`${BASE_URL}philosophers`).catch(console.error);
+    fetchPhilosophers();
 
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
@@ -109,16 +58,10 @@ function App() {
     }
   }, []);
 
-  // --- Keyboard Controls ---
+  // Keyboard controls: Space for voice, 1-4 for images
   useEffect(() => {
-      const handleKeyDown = (e: KeyboardEvent) => {
-      // 1. Check for keys 1, 2, 3, or 4 to toggle image sets
-      if (['1', '2', '3', '4'].includes(e.key) && document.activeElement?.tagName !== 'INPUT') {
-        setImageSet(parseInt(e.key, 10)); // Converts the string '1' to the number 1
-        return; 
-      }
-
-      // 2. Check for Spacebar (Voice Recording)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Space key for voice recording
       if (e.code === 'Space' && !e.repeat && document.activeElement?.tagName !== 'INPUT') {
         e.preventDefault(); 
         
@@ -130,9 +73,7 @@ function App() {
         liveTranscriptRef.current = "";
         setSubmittedQuestion("");
 
-        fetch(`${BASE_URL}question`, {
-          method: 'DELETE'
-        }).catch(console.error);
+        clearQuestion();
 
         try {
           recognitionRef.current?.start(); 
@@ -162,7 +103,7 @@ function App() {
     };
   }, []);
   
-  // --- 3. THE CONTROL LOOP ---
+  // Main debate loop
   const startDebate = async (questionText: string) => {
     if (!questionText) return;
 
@@ -171,7 +112,7 @@ function App() {
     setThinkingName(null);
     setTypingPhilosopher(null);
 
-    await fetch(`${BASE_URL}question`, { method: 'DELETE' }).catch(console.error);
+    await clearQuestion();
     await new Promise(resolve => setTimeout(resolve, 100));
 
     setSubmittedQuestion(questionText);
@@ -179,23 +120,22 @@ function App() {
     debateActiveRef.current = true;
 
     try {
-      await fetch(`${BASE_URL}question`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: questionText })
-      });
+      await submitQuestion(questionText);
       
       let finished = false;
       
       while (!finished && debateActiveRef.current) {
-        const response = await fetch(`${BASE_URL}next-response`);
-        if (response.status === 504) continue; // still waiting for LLM, keep polling
-        if (!response.ok) break;
-        const data = await response.json();
+        const data = await getNextResponse();
+        
+        if (data === null) {
+          // 504 response or error, retry
+          await new Promise(resolve => setTimeout(resolve, 100));
+          continue;
+        }
 
         if (!debateActiveRef.current) break; 
 
-                // TRANSLATE THE NAME HERE: "Flusser" -> "Flusser-AI"
+        // Translate philosopher name
         const config = PHILOSOPHER_CONFIG[data.philosopher];
         const displayName = config ? config.displayName : data.philosopher;
 
@@ -205,16 +145,16 @@ function App() {
         if (!debateActiveRef.current) break; 
 
         setThinkingName(null);
-        setTypingPhilosopher(displayName); // Start the GIF
+        setTypingPhilosopher(displayName);
 
         await new Promise<void>((resolve) => {
           const newMessage: ChatMessage = {
             id: Date.now() + Math.random(),
-            philosopher: displayName, // Saves "Flusser-AI" to the chat log!
+            philosopher: displayName,
             text: data.text,
             isNew: true,
             onComplete: () => {
-              setTypingPhilosopher(null); // Stop the GIF
+              setTypingPhilosopher(null);
               resolve(); 
             }
           };
@@ -225,7 +165,7 @@ function App() {
               ...prev.map(m => ({ ...m, isNew: false }))
             ]);
           } else {
-            setTypingPhilosopher(null); // Failsafe stop
+            setTypingPhilosopher(null);
             resolve(); 
           }
         });
@@ -238,87 +178,34 @@ function App() {
     }
   };
 
-  // --- 4. THE RENDER ---
   return (
     <div className="app-container">
-      <div className="input-section">
-        <input 
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          placeholder="[ press SPACE to speak, or type here ]"
-          onKeyDown={(e) => { 
-            if(e.key === 'Enter') {
-              startDebate(inputValue);
-              (e.target as HTMLInputElement).blur(); 
-            } 
-          }}
-        />
-      </div>
+      <InputSection 
+        value={inputValue}
+        onChange={setInputValue}
+        onSubmit={startDebate}
+      />
 
-      <div className="image-grid">
-        {['Weizenbaum', 'Flusser', 'Weibel', 'Virilio'].map((baseName) => {
-          const config = PHILOSOPHER_CONFIG[baseName];
-          
-          // isTyping checks against the "-AI" name now
-          const isTyping = typingPhilosopher === config.displayName;
-          const isGif = imageSet === 1 && isTyping;
-          const extension = isGif ? 'gif' : 'png';
-          
-          // Builds the image path (e.g., /images/flusser1.gif)
-          const imgSrc = `/images/${config.filePrefix}${imageSet}.${extension}`;
+      <ImageGrid 
+        imageSet={imageSet}
+        onImageSetChange={setImageSet}
+        typingPhilosopher={typingPhilosopher}
+      />
 
-          return (
-            <div className="philosopher-column" key={baseName}>
-              {/* Uses your original COLORS object based on the "-AI" name */}
-              <div className="philosopher-frame" style={{ borderColor: COLORS[config.displayName] }}>
-                <img src={imgSrc} alt={config.displayName} />
-              </div>
-              <div className="philosopher-label" style={{ color: COLORS[config.displayName] }}>
-                {config.displayName.toUpperCase()}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {isListening ? (
-        <div className="voice-interface">
-          <div className="recording-indicator">● RECORDING_QUESTION</div>
-          <div className="live-transcript">{liveTranscript || "..."}</div>
-        </div>
-      ) : (
-        submittedQuestion && <div className="submitted-question">{submittedQuestion}</div>
+      {submittedQuestion && !isListening && (
+        <div className="submitted-question">{submittedQuestion}</div>
       )}
 
-      <div className="discussion-log">
-        {thinkingName && !isListening && (
-          <div className="thinking-indicator" style={{ color: COLORS[thinkingName] }}>
-            {thinkingName.toUpperCase()} IS THINKING...
-          </div>
-        )}
-        
-        {discussion.map((msg, index) => {
-          const opacityLevel = Math.max(0.2, 1 - (index * 0.25));
+      <VoiceIndicator 
+        isListening={isListening}
+        liveTranscript={liveTranscript}
+      />
 
-          return (
-            <div className="chat-bubble" key={msg.id} style={{ opacity: opacityLevel }}>
-              <span className="philosopher-name" style={{ color: COLORS[msg.philosopher] }}>
-                {msg.philosopher}:
-              </span>
-              <span className="philosopher-text">
-                {msg.isNew ? (
-                  <Typewriter 
-                    text={msg.text} 
-                    onComplete={msg.onComplete} 
-                  />
-                ) : (
-                  msg.text
-                )}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      <DiscussionLog 
+        messages={discussion}
+        thinkingName={thinkingName}
+        isListening={isListening}
+      />
     </div>
   );
 }
