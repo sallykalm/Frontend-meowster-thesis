@@ -1,4 +1,5 @@
 import { submitQuestion, getNextResponse } from "./api";
+import { PORT } from "./constants";
 import { useState, useEffect } from "react";
 import DiscussionLog from "./DiscussionLog";
 import type { ChatMessage } from "./DiscussionLog";
@@ -44,6 +45,16 @@ function App() {
             setThinkingName(data.philosopher);
             setCurrentPhilosopher(data.philosopher);
 
+            let audioEndPromise: Promise<void> = Promise.resolve();
+            if (data.audio_url) {
+                const audio = new Audio(`http://localhost:${PORT}${data.audio_url}`);
+                audioEndPromise = new Promise<void>((res) => {
+                    audio.addEventListener('ended', () => res(), { once: true });
+                    audio.addEventListener('error', () => res(), { once: true });
+                    audio.play().catch(() => res());
+                });
+            }
+
             // Split response into lines (if needed)
             const lines = splitIntoLines(data.text);
 
@@ -73,6 +84,8 @@ function App() {
                     });
                 });
             }
+
+            await audioEndPromise;
 
             lastPhilosopher = data.philosopher;
 
