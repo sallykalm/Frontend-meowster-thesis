@@ -3,6 +3,7 @@ import { BASE_URL } from './constants';
 export interface ApiResponse {
   philosopher: string;
   text: string;
+  audio_url?: string | null;
   is_last: boolean;
 }
 

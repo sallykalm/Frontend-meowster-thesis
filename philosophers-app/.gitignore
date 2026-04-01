@@ -31,3 +31,8 @@ __pycache__/
 *.njsproj
 *.sln
 *.sw?
+
+# Personal WIP files
+WIP/
+copilot-instructions-max.md
+text-styling-plan.md

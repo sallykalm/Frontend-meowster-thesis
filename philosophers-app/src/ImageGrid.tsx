@@ -22,15 +22,15 @@ const ImageGrid = ({ imageSet, onImageSetChange, typingPhilosopher }: ImageGridP
     };
   }, [onImageSetChange]);
 
+  const isSomeoneTyping = !!typingPhilosopher;
+
   return (
     <div className="image-grid">
       {['Weizenbaum', 'Flusser', 'Weibel', 'Virilio'].map((baseName) => {
         const config = PHILOSOPHER_CONFIG[baseName];
-        
-        const isTyping = typingPhilosopher === config.displayName;
-        const isGif = imageSet === 1 && isTyping;
+        // Only show GIF if this philosopher is typing and someone is typing
+        const isGif = isSomeoneTyping && typingPhilosopher === baseName && imageSet === 1;
         const extension = isGif ? 'gif' : 'png';
-        
         const imgSrc = `/images/${config.filePrefix}${imageSet}.${extension}`;
 
         return (
