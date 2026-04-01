@@ -12,8 +12,9 @@ export const PHILOSOPHER_CONFIG: Record<string, { displayName: string, filePrefi
   "Weizenbaum": { displayName: "Weizenbaum-AI", filePrefix: "weizenbaum" },
   "Virilio": { displayName: "Virilio-AI", filePrefix: "virilio" },
   "Weibel": { displayName: "Weibel-AI", filePrefix: "weibel" },
-  "Moderator": { displayName: "Moderator", filePrefix: "moderator" }
+  "Moderator": { displayName: "system", filePrefix: "moderator" }
 };
 
 export const PORT = 15567;
 export const BASE_URL = `http://localhost:${PORT}/api/`;
+

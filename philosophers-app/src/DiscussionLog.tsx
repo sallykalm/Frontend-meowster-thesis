@@ -1,4 +1,5 @@
 import Typewriter from "./Typewriter";
+import { COLORS, PHILOSOPHER_CONFIG } from './constants';
 
 export interface ChatMessage {
   id: number;
@@ -14,15 +15,6 @@ interface DiscussionLogProps {
   thinkingName: string | null;
   isListening: boolean;
 }
-
-// You can move this COLORS object to a shared constants file if you wish
-const COLORS: Record<string, string> = {
-  "Flusser": "#FA4616",
-  "Weizenbaum": "#97D700",
-  "Virilio": "#E0E721",
-  "Weibel": "#8DC8E8",
-  "Moderator": "#FFFFFF"
-};
 
 const OPACITIES = [1, 1, 0.6, 0.3]; // Bottom up: newest to oldest
 
@@ -50,7 +42,8 @@ const DiscussionLog = ({
           const isCurrent = idx === visibleLines.length - 1;
           const prevLine = visibleLines[idx - 1];
           const isNewPhilosopher = !prevLine || prevLine.philosopher !== line.philosopher;
-          const nameColor = COLORS[line.philosopher] || "#fff";
+          const displayName = PHILOSOPHER_CONFIG[line.philosopher]?.displayName || line.philosopher;
+          const nameColor = COLORS[displayName] || "#fff";
 
           return (
             <div
@@ -75,7 +68,6 @@ const DiscussionLog = ({
                   color: isCurrent ? nameColor : "transparent",
                   fontWeight: isCurrent ? "bold" : "normal",
                   visibility: isCurrent ? "visible" : "hidden",
-                  transition: "color 0.3s",
                 }}
               >
                 {isCurrent ? line.philosopher : ""}
@@ -85,7 +77,6 @@ const DiscussionLog = ({
                 className="chat-bubble"
                 style={{
                   opacity,
-                  transition: "opacity 0.8s",
                   color: "#fff",
                   flex: 1,
                   whiteSpace: "pre-line",

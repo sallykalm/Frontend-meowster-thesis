@@ -85,16 +85,6 @@ body {
   display: block;
 }
 
-/* The User Question */
-.submitted-question {
-  text-align: center;
-  color: #ff66cc; 
-  font-size: 1.2rem;
-  margin-bottom: 50px;
-  font-weight: bold;
-  letter-spacing: 1px;
-}
-
 /* Discussion area (Newest at top) */
 .discussion-log {
   display: flex;
@@ -113,10 +103,7 @@ body {
   opacity: 1;
   white-space: pre-line;
   overflow-wrap: break-word;
-}
-
-.slide-up {
-  animation: slideUp 0.6s;
+  text-align: left;
 }
 
 @keyframes slideUp {
@@ -139,7 +126,7 @@ body {
 .thinking-indicator {
   font-weight: bold;
   letter-spacing: 4px;
-  margin-bottom: 30px;
+  margin-bottom: 40px;
   text-align: center;
   font-size: 0.9rem;
   animation: pulse 1s infinite alternate;
@@ -157,20 +144,12 @@ body {
 }
 
 .philosopher-name {
-  min-width: 120px;
+  min-width: 80px;
   text-align: right;
-  margin-right: 1rem;
+  margin-right: 0.5rem;
   font-weight: bold;
   transition: color 0.3s;
 }
-
-.philosopher-text {
-  color: white;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-/* --- Add to the bottom of App.css --- */
 
 .voice-interface {
   text-align: center;
@@ -204,13 +183,6 @@ body {
   max-width: 800px;
 }
 
-.chat-row {
-  display: flex;
-  align-items: flex-start;
-  width: 100%;
-  margin-bottom: 0.2rem;
-}
-
 .subtitle-row {
   display: flex;
   align-items: flex-start;
@@ -230,10 +202,11 @@ body {
 }
 
 .user-question {
-  color: #ff69b4; /* Hot pink */
+  color: #ff69b4; 
   text-align: center;
-  font-size: 1.5em;
+  font-size: 1.2em;
   margin: 2em 0 1em 0;
   font-weight: bold;
   letter-spacing: 1px;
 }
+
