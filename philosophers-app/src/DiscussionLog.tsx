@@ -1,4 +1,5 @@
 import Typewriter from "./Typewriter";
+import VoiceIndicator from "./VoiceIndicator";
 import { COLORS, PHILOSOPHER_CONFIG } from './constants';
 
 export interface ChatMessage {
@@ -12,8 +13,8 @@ export interface ChatMessage {
 interface DiscussionLogProps {
   finishedLines: ChatMessage[];
   currentLine: ChatMessage | null;
-  thinkingName: string | null;
   isListening: boolean;
+  liveTranscript: string;
 }
 
 const OPACITIES = [1, 1, 0.6, 0.3]; // Bottom up: newest to oldest
@@ -21,8 +22,8 @@ const OPACITIES = [1, 1, 0.6, 0.3]; // Bottom up: newest to oldest
 const DiscussionLog = ({
   finishedLines,
   currentLine,
-  thinkingName,
   isListening,
+  liveTranscript,
 }: DiscussionLogProps) => {
   // Compose the visible lines (max 4)
   const lines = [...finishedLines, ...(currentLine ? [currentLine] : [])];
@@ -30,12 +31,9 @@ const DiscussionLog = ({
 
   return (
     <div className="discussion-log">
-      {/* Thinking indicator only between philosophers */}
-      {thinkingName && !isListening && !currentLine && (
-        <div className="thinking-indicator">
-          {thinkingName.toUpperCase()} IS THINKING...
-        </div>
-      )}
+      {/* Voice indicator - only when listening and no transcript */}
+      <VoiceIndicator isListening={isListening} liveTranscript={liveTranscript} />
+
       <div className="subtitle-lines">
         {visibleLines.map((line, idx) => {
           const opacity = OPACITIES[visibleLines.length - 1 - idx] || 0;
@@ -55,7 +53,7 @@ const DiscussionLog = ({
                 width: "80vw",
                 maxWidth: "900px",
                 margin: "0 auto 0.2em auto",
-                marginTop: isNewPhilosopher && idx !== 0 ? "2em" : "0", // <-- Add space above new philosopher, except for very first line
+                marginTop: isNewPhilosopher && idx !== 0 ? "2em" : "0",
               }}
             >
               {/* Philosopher name column */}
@@ -70,7 +68,7 @@ const DiscussionLog = ({
                   visibility: isCurrent ? "visible" : "hidden",
                 }}
               >
-                {isCurrent ? line.philosopher : ""}
+                {isCurrent ? displayName : ""}
               </span>
               {/* Text column */}
               <span

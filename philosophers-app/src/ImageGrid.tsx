@@ -1,13 +1,17 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { PHILOSOPHER_CONFIG, COLORS } from './constants';
 
 interface ImageGridProps {
   imageSet: number;
   onImageSetChange: (set: number) => void;
   typingPhilosopher: string | null;
+  thinkingName: string | null;
+  currentPhilosopher: string | null;
 }
 
-const ImageGrid = ({ imageSet, onImageSetChange, typingPhilosopher }: ImageGridProps) => {
+const ImageGrid = ({ imageSet, onImageSetChange, typingPhilosopher, thinkingName, currentPhilosopher }: ImageGridProps) => {
+  const [dotCount, setDotCount] = useState(1);
+
   // Handle keyboard shortcuts for image sets (1-4)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -22,6 +26,17 @@ const ImageGrid = ({ imageSet, onImageSetChange, typingPhilosopher }: ImageGridP
     };
   }, [onImageSetChange]);
 
+  // Animate the thinking dots
+  useEffect(() => {
+    if (!thinkingName) return;
+
+    const interval = setInterval(() => {
+      setDotCount((prev) => (prev === 3 ? 1 : prev + 1));
+    }, 400);
+
+    return () => clearInterval(interval);
+  }, [thinkingName]);
+
   const isSomeoneTyping = !!typingPhilosopher;
 
   return (
@@ -32,6 +47,10 @@ const ImageGrid = ({ imageSet, onImageSetChange, typingPhilosopher }: ImageGridP
         const isGif = isSomeoneTyping && typingPhilosopher === baseName && imageSet === 1;
         const extension = isGif ? 'gif' : 'png';
         const imgSrc = `/images/${config.filePrefix}${imageSet}.${extension}`;
+        
+        // Check if this philosopher is thinking (but not currently speaking)
+        const isThinking = thinkingName === baseName && currentPhilosopher !== baseName;
+        const thinkingDots = '.'.repeat(dotCount);
 
         return (
           <div className="philosopher-column" key={baseName}>
@@ -41,6 +60,14 @@ const ImageGrid = ({ imageSet, onImageSetChange, typingPhilosopher }: ImageGridP
             <div className="philosopher-label" style={{ color: COLORS[config.displayName] }}>
               {config.displayName.toUpperCase()}
             </div>
+            {isThinking && (
+              <div 
+                className="philosopher-thinking"
+                style={{ color: COLORS[config.displayName] }}
+              >
+                IS THINKING{thinkingDots}
+              </div>
+            )}
           </div>
         );
       })}
