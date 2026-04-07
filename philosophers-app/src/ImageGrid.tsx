@@ -44,7 +44,7 @@ const ImageGrid = ({ imageSet, onImageSetChange, typingPhilosopher, thinkingName
       {['Weizenbaum', 'Flusser', 'Weibel', 'Virilio'].map((baseName) => {
         const config = PHILOSOPHER_CONFIG[baseName];
         // Only show GIF if this philosopher is typing and someone is typing
-        const isGif = isSomeoneTyping && typingPhilosopher === baseName && (imageSet === 1 || imageSet === 2);
+        const isGif = isSomeoneTyping && typingPhilosopher === baseName && (imageSet === 1 || imageSet === 2 || imageSet === 4);
         const extension = isGif ? 'gif' : 'png';
         const imgSrc = `/images/${config.filePrefix}${imageSet}.${extension}`;
         
