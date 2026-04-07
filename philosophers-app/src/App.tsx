@@ -1,29 +1,37 @@
 import { submitQuestion, getNextResponse } from "./api";
 import { PORT } from "./constants";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import DiscussionLog from "./DiscussionLog";
 import type { ChatMessage } from "./DiscussionLog";
 import ImageGrid from "./ImageGrid";
 import "./App.css";
-import VoiceIndicator from "./VoiceIndicator";
+import { useWebSpeech } from "./useWebSpeech";
 
 function App() {
     const [finishedLines, setFinishedLines] = useState<ChatMessage[]>([]);
     const [currentLine, setCurrentLine] = useState<ChatMessage | null>(null);
     const [currentPhilosopher, setCurrentPhilosopher] = useState<string | null>(null);
     const [thinkingName, setThinkingName] = useState<string | null>(null);
-    const [isListening, setIsListening] = useState(false);
-    const [liveTranscript, setLiveTranscript] = useState("");
     const [imageSet, setImageSet] = useState(1);
     const [userQuestion, setUserQuestion] = useState<string>("");
     const [submittedQuestion, setSubmittedQuestion] = useState<string>("");
+    
+    // Web Speech API hook
+    const { isListening, transcript, start: startVoice, stop: stopVoice, reset: resetVoice } = useWebSpeech();
+    
+    // Input field ref for checking focus
+    const inputRef = useRef<HTMLInputElement>(null);
+    
+    // AbortController to interrupt debate loop when spacebar is pressed
+    const debateAbortRef = useRef<AbortController | null>(null);
 
     async function startDebate(questionText: string) {
+        // Create a new AbortController for this debate
+        debateAbortRef.current = new AbortController();
+        
         setFinishedLines([]);
         setCurrentLine(null);
         setSubmittedQuestion(questionText);
-
-        setThinkingName("...");
 
         await submitQuestion(questionText);
 
@@ -31,6 +39,15 @@ function App() {
         let lastPhilosopher: string | null = null;
 
         while (!finished) {
+            // Exit early if debate was aborted (e.g., spacebar pressed)
+            if (debateAbortRef.current?.signal.aborted) {
+                setThinkingName(null);
+                setCurrentPhilosopher(null);
+                setCurrentLine(null);
+                setFinishedLines([]);
+                break;
+            }
+
             const data = await getNextResponse();
             if (!data) break;
 
@@ -109,21 +126,32 @@ function App() {
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.code === "Space" && !isListening) {
-                setIsListening(true);
-                // Start voice recognition here
+            // If spacebar pressed, abort any ongoing debate
+            if (e.code === "Space") {
+                if (debateAbortRef.current && !debateAbortRef.current.signal.aborted) {
+                    debateAbortRef.current.abort();
+                    setSubmittedQuestion(""); // Clear question to allow new voice input
+                }
+            }
+            // Only start voice if spacebar pressed, input NOT focused, and not already listening
+            if (e.code === "Space" && !isListening && document.activeElement !== inputRef.current) {
+                e.preventDefault();
+                startVoice();
             }
         };
         const handleKeyUp = (e: KeyboardEvent) => {
+            // Only stop voice if spacebar released and currently listening
             if (e.code === "Space" && isListening) {
-                setIsListening(false);
-                // Stop voice recognition and submit transcript here
-                if (liveTranscript.trim()) {
-                    startDebate(liveTranscript.trim());
-                    setSubmittedQuestion(liveTranscript.trim());
-                    setUserQuestion("");
-                    setLiveTranscript("");
-                }
+                e.preventDefault();
+                stopVoice();
+                // Handle transcript submission after a small delay for final processing
+                setTimeout(() => {
+                    if (transcript.trim()) {
+                        setUserQuestion("");
+                        startDebate(transcript.trim());
+                        resetVoice();
+                    }
+                }, 100);
             }
         };
         window.addEventListener("keydown", handleKeyDown);
@@ -132,15 +160,16 @@ function App() {
             window.removeEventListener("keydown", handleKeyDown);
             window.removeEventListener("keyup", handleKeyUp);
         };
-    }, [isListening, liveTranscript]);
+    }, [isListening, transcript, startVoice, stopVoice, resetVoice]);
 
     return (
         <div className="app-container">
             <div className="input-section">
                 <input
+                    ref={inputRef}
                     value={userQuestion}
                     onChange={(e) => setUserQuestion(e.target.value)}
-                    placeholder="[ press SPACE to speak, or type here ]"
+                    placeholder=""
                     onKeyDown={(e) => {
                         if (e.key === "Enter") {
                             startDebate(userQuestion);
@@ -155,18 +184,22 @@ function App() {
                 imageSet={imageSet}
                 onImageSetChange={setImageSet}
                 typingPhilosopher={currentPhilosopher}
+                thinkingName={thinkingName}
+                currentPhilosopher={currentPhilosopher}
             />
-            {/* Show the submitted question (not while typing) */}
+            {/* Show the submitted question or live transcript while listening */}
             {submittedQuestion && (
-                <div className="user-question">{submittedQuestion}</div>
+                <div className="user-question">Question: {submittedQuestion}</div>
+            )}
+            {isListening && transcript && !submittedQuestion && (
+                <div className="user-question">Question: {transcript}</div>
             )}
             <DiscussionLog
                 finishedLines={finishedLines}
                 currentLine={currentLine}
-                thinkingName={thinkingName}
                 isListening={isListening}
+                liveTranscript={transcript}
             />
-            <VoiceIndicator isListening={isListening} liveTranscript={liveTranscript} />
         </div>
     );
 }

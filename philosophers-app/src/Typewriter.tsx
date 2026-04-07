@@ -6,7 +6,7 @@ interface TypewriterProps {
   onComplete?: () => void;
 }
 
-const Typewriter = ({ text, speed = 75, onComplete }: TypewriterProps) => {
+const Typewriter = ({ text, speed = 125, onComplete }: TypewriterProps) => {
   const [displayedText, setDisplayedText] = useState("");
   const indexRef = useRef(0);
 
