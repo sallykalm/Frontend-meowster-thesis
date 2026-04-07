@@ -44,7 +44,7 @@ const ImageGrid = ({ imageSet, onImageSetChange, typingPhilosopher, thinkingName
       {['Weizenbaum', 'Flusser', 'Weibel', 'Virilio'].map((baseName) => {
         const config = PHILOSOPHER_CONFIG[baseName];
         // Only show GIF if this philosopher is typing and someone is typing
-        const isGif = isSomeoneTyping && typingPhilosopher === baseName && imageSet === 1;
+        const isGif = isSomeoneTyping && typingPhilosopher === baseName && (imageSet === 1 || imageSet === 2);
         const extension = isGif ? 'gif' : 'png';
         const imgSrc = `/images/${config.filePrefix}${imageSet}.${extension}`;
         
@@ -60,12 +60,16 @@ const ImageGrid = ({ imageSet, onImageSetChange, typingPhilosopher, thinkingName
             <div className="philosopher-label" style={{ color: COLORS[config.displayName] }}>
               {config.displayName.toUpperCase()}
             </div>
-            {isThinking && (
+            {isThinking ? (
               <div 
                 className="philosopher-thinking"
                 style={{ color: COLORS[config.displayName] }}
               >
                 IS THINKING{thinkingDots}
+              </div>
+            ) : (
+              <div className="philosopher-thinking" style={{ visibility: 'hidden' }}>
+                {/* Placeholder to reserve space */}
               </div>
             )}
           </div>

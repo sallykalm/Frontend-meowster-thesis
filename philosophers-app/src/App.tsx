@@ -189,10 +189,10 @@ function App() {
             />
             {/* Show the submitted question or live transcript while listening */}
             {submittedQuestion && (
-                <div className="user-question">{submittedQuestion}</div>
+                <div className="user-question">Question: {submittedQuestion}</div>
             )}
             {isListening && transcript && !submittedQuestion && (
-                <div className="user-question">{transcript}</div>
+                <div className="user-question">Question: {transcript}</div>
             )}
             <DiscussionLog
                 finishedLines={finishedLines}

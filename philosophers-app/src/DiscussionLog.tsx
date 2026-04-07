@@ -29,64 +29,76 @@ const DiscussionLog = ({
   const lines = [...finishedLines, ...(currentLine ? [currentLine] : [])];
   const visibleLines = lines.slice(-4);
 
+  // Group consecutive lines by philosopher for better layout
+  interface PhilosopherBlock {
+    philosopher: string;
+    displayName: string;
+    nameColor: string;
+    lineIndices: number[];
+  }
+
+  const philosopherBlocks: PhilosopherBlock[] = [];
+  visibleLines.forEach((line, idx) => {
+    const displayName = PHILOSOPHER_CONFIG[line.philosopher]?.displayName || line.philosopher;
+    const nameColor = COLORS[displayName] || "#fff";
+    
+    const lastBlock = philosopherBlocks[philosopherBlocks.length - 1];
+    if (lastBlock && lastBlock.philosopher === line.philosopher) {
+      lastBlock.lineIndices.push(idx);
+    } else {
+      philosopherBlocks.push({
+        philosopher: line.philosopher,
+        displayName,
+        nameColor,
+        lineIndices: [idx],
+      });
+    }
+  });
+
   return (
     <div className="discussion-log">
       {/* Voice indicator - only when listening and no transcript */}
       <VoiceIndicator isListening={isListening} liveTranscript={liveTranscript} />
 
-      <div className="subtitle-lines">
-        {visibleLines.map((line, idx) => {
-          const opacity = OPACITIES[visibleLines.length - 1 - idx] || 0;
-          const isCurrent = idx === visibleLines.length - 1;
-          const prevLine = visibleLines[idx - 1];
-          const isNewPhilosopher = !prevLine || prevLine.philosopher !== line.philosopher;
-          const displayName = PHILOSOPHER_CONFIG[line.philosopher]?.displayName || line.philosopher;
-          const nameColor = COLORS[displayName] || "#fff";
-
+      <div className="discussion-content">
+        {philosopherBlocks.map((block, blockIdx) => {
+          const isNewPhilosopher = blockIdx === 0 || philosopherBlocks[blockIdx - 1].philosopher !== block.philosopher;
+          
           return (
             <div
-              className="subtitle-row"
-              key={line.id}
+              key={`block-${block.philosopher}-${block.lineIndices[0]}`}
+              className="philosopher-block"
               style={{
-                display: "flex",
-                alignItems: "flex-start",
-                width: "80vw",
-                maxWidth: "900px",
-                margin: "0 auto 0.2em auto",
-                marginTop: isNewPhilosopher && idx !== 0 ? "2em" : "0",
+                marginTop: isNewPhilosopher && blockIdx !== 0 ? "0.5em" : "0",
               }}
             >
-              {/* Philosopher name column */}
-              <span
-                className="philosopher-name"
-                style={{
-                  minWidth: 120,
-                  textAlign: "right",
-                  marginRight: "1rem",
-                  color: isCurrent ? nameColor : "transparent",
-                  fontWeight: isCurrent ? "bold" : "normal",
-                  visibility: isCurrent ? "visible" : "hidden",
-                }}
-              >
-                {isCurrent ? displayName : ""}
-              </span>
-              {/* Text column */}
-              <span
-                className="chat-bubble"
-                style={{
-                  opacity,
-                  color: "#fff",
-                  flex: 1,
-                  whiteSpace: "pre-line",
-                  wordBreak: "break-word",
-                }}
-              >
-                {line.isNew && isCurrent ? (
-                  <Typewriter text={line.text} onComplete={line.onComplete} />
-                ) : (
-                  line.text
-                )}
-              </span>
+              {/* Name label on the left */}
+              <div className="name-label" style={{ color: block.nameColor }}>
+                {block.displayName}
+              </div>
+
+              {/* Text lines block */}
+              <div className="text-lines-block">
+                {block.lineIndices.map((lineIdx) => {
+                  const line = visibleLines[lineIdx];
+                  const isCurrent = lineIdx === visibleLines.length - 1;
+                  const opacity = OPACITIES[visibleLines.length - 1 - lineIdx] || 0;
+
+                  return (
+                    <div
+                      key={line.id}
+                      className="chat-bubble"
+                      style={{ opacity }}
+                    >
+                      {line.isNew && isCurrent ? (
+                        <Typewriter text={line.text} onComplete={line.onComplete} />
+                      ) : (
+                        line.text
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           );
         })}
