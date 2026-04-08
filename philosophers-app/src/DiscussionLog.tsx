@@ -64,9 +64,6 @@ const DiscussionLog = ({
         {philosopherBlocks.map((block, blockIdx) => {
           const isNewPhilosopher = blockIdx === 0 || philosopherBlocks[blockIdx - 1].philosopher !== block.philosopher;
           
-          // Check if this philosopher's block contains any new lines (currently speaking)
-          const hasNewLines = block.lineIndices.some((lineIdx) => visibleLines[lineIdx].isNew);
-          
           return (
             <div
               key={`block-${block.philosopher}-${block.lineIndices[0]}`}

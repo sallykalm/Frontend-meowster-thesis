@@ -201,6 +201,7 @@ function App() {
                 thinkingName={thinkingName}
                 currentPhilosopher={currentPhilosopher}
             />
+            
             {/* 1. Visar den inskickade frågan när vi INTE spelar in */}
             {submittedQuestion && (
                 <div className="user-question">Question: {submittedQuestion}</div>
@@ -215,6 +216,14 @@ function App() {
                     </div>
                 </div>
             )}
+
+            {/*Renderar konversationen */}
+            <DiscussionLog 
+                finishedLines={finishedLines}
+                currentLine={currentLine}
+                isListening={isListening}
+                liveTranscript={transcript}
+            />
         </div>
     );
 }
