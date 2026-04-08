@@ -64,6 +64,9 @@ const DiscussionLog = ({
         {philosopherBlocks.map((block, blockIdx) => {
           const isNewPhilosopher = blockIdx === 0 || philosopherBlocks[blockIdx - 1].philosopher !== block.philosopher;
           
+          // Check if this philosopher's block contains any new lines (currently speaking)
+          const hasNewLines = block.lineIndices.some((lineIdx) => visibleLines[lineIdx].isNew);
+          
           return (
             <div
               key={`block-${block.philosopher}-${block.lineIndices[0]}`}
@@ -72,8 +75,11 @@ const DiscussionLog = ({
                 marginTop: isNewPhilosopher && blockIdx !== 0 ? "0.5em" : "0",
               }}
             >
-              {/* Name label on the left */}
-              <div className="name-label" style={{ color: block.nameColor }}>
+              {/* Name label on the left - fixed while speaking, otherwise normal */}
+              <div
+                className="name-label"
+                style={{ color: block.nameColor }}
+              >
                 {block.displayName}
               </div>
 
