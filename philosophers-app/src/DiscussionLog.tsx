@@ -15,6 +15,8 @@ interface DiscussionLogProps {
   currentLine: ChatMessage | null;
   isListening: boolean;
   liveTranscript: string;
+  isFastForwarding?: boolean;
+  isPaused?: boolean;
 }
 
 const OPACITIES = [1, 1, 0.6, 0.3]; // Bottom up: newest to oldest
@@ -24,6 +26,8 @@ const DiscussionLog = ({
   currentLine,
   isListening,
   liveTranscript,
+  isFastForwarding = false,
+  isPaused = false,
 }: DiscussionLogProps) => {
   // Compose the visible lines (max 4)
   const lines = [...finishedLines, ...(currentLine ? [currentLine] : [])];
@@ -94,7 +98,7 @@ const DiscussionLog = ({
                       style={{ opacity }}
                     >
                       {line.isNew && isCurrent ? (
-                        <Typewriter text={line.text} onComplete={line.onComplete} />
+                        <Typewriter text={line.text} onComplete={line.onComplete} isFastForwarding={isFastForwarding} isPaused={isPaused} />
                       ) : (
                         line.text
                       )}

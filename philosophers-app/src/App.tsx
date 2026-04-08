@@ -1,9 +1,10 @@
-import { submitQuestion, getNextResponse } from "./api";
+import { submitQuestion, getNextResponse, clearQuestion } from "./api";
 import { PORT } from "./constants";
 import { useState, useEffect, useRef } from "react";
 import DiscussionLog from "./DiscussionLog";
 import type { ChatMessage } from "./DiscussionLog";
 import ImageGrid from "./ImageGrid";
+import Menu from "./Menu";
 import "./App.css";
 import { useWebSpeech } from "./useWebSpeech";
 
@@ -16,11 +17,20 @@ function App() {
     const [userQuestion, setUserQuestion] = useState<string>("");
     const [submittedQuestion, setSubmittedQuestion] = useState<string>("");
     
+    // Menu system states
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [isPaused, setIsPaused] = useState(false);
+    const [isFastForwarding, setIsFastForwarding] = useState(false);
+    const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
+    
     // Web Speech API hook
     const { isListening, transcript, start: startVoice, stop: stopVoice, reset: resetVoice } = useWebSpeech();
     
     // Input field ref for checking focus
     const inputRef = useRef<HTMLInputElement>(null);
+    
+    // Audio ref for pause/play control
+    const currentAudioRef = useRef<HTMLAudioElement | null>(null);
     
     // AbortController to interrupt debate loop when spacebar is pressed
     const debateAbortRef = useRef<AbortController | null>(null);
@@ -47,13 +57,30 @@ function App() {
         setCurrentLine(null);
         setSubmittedQuestion(questionText);
 
-        await submitQuestion(questionText);
+        await submitQuestion(questionText, isVoiceEnabled);
 
         let finished = false;
         let lastPhilosopher: string | null = null;
 
         while (!finished) {
             // Exit early if debate was aborted (e.g., spacebar pressed)
+            if (debateAbortRef.current?.signal.aborted) {
+                setThinkingName(null);
+                setCurrentPhilosopher(null);
+                setCurrentLine(null);
+                setFinishedLines([]);
+                break;
+            }
+
+            // Wait if paused - continuously check with small delay
+            while (isPaused) {
+                await new Promise((resolve) => setTimeout(resolve, 100));
+                if (debateAbortRef.current?.signal.aborted) {
+                    break;
+                }
+            }
+
+            // Check abort again after pause wait
             if (debateAbortRef.current?.signal.aborted) {
                 setThinkingName(null);
                 setCurrentPhilosopher(null);
@@ -77,8 +104,9 @@ function App() {
             setCurrentPhilosopher(data.philosopher);
 
             let audioEndPromise: Promise<void> = Promise.resolve();
-            if (data.audio_url) {
+            if (data.audio_url && isVoiceEnabled) {
                 const audio = new Audio(`http://localhost:${PORT}${data.audio_url}`);
+                currentAudioRef.current = audio;
                 audioEndPromise = new Promise<void>((res) => {
                     audio.addEventListener('ended', () => res(), { once: true });
                     audio.addEventListener('error', () => res(), { once: true });
@@ -123,6 +151,9 @@ function App() {
             if (data.is_last) finished = true;
             setThinkingName(null);
         }
+
+        // Explicitly set philosopher to null when debate finishes
+        setCurrentPhilosopher(null);
     }
 
     function splitIntoLines(text: string, maxLen = 80) {
@@ -140,6 +171,9 @@ function App() {
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            // Check if input is focused
+            const isInputFocused = document.activeElement === inputRef.current;
+            
             // If spacebar pressed, abort any ongoing debate
             if (e.code === "Space") {
                 if (debateAbortRef.current && !debateAbortRef.current.signal.aborted) {
@@ -148,12 +182,38 @@ function App() {
                 }
             }
             // Only start voice if spacebar pressed, input NOT focused, and not already listening
-            if (e.code === "Space" && !isListening && document.activeElement !== inputRef.current) {
+            if (e.code === "Space" && !isListening && !isInputFocused) {
                 e.preventDefault();
                 startVoice();
             }
+            
+            // Menu shortcuts (ignore input focus)
+            if (e.key.toUpperCase() === "M") {
+                setIsMenuOpen(!isMenuOpen);
+            }
+            
+            // Only process menu shortcuts if input is not focused
+            if (!isInputFocused) {
+                if (e.key.toUpperCase() === "P") {
+                    setIsPaused(!isPaused);
+                }
+                if (e.key.toUpperCase() === "Q") {
+                    handleStop();
+                }
+                if (e.key.toUpperCase() === "F") {
+                    setIsFastForwarding(true);
+                }
+                if (e.key.toUpperCase() === "V") {
+                    setIsVoiceEnabled(!isVoiceEnabled);
+                }
+                if (e.key.toUpperCase() === "I") {
+                    handleIntroduction();
+                }
+            }
         };
         const handleKeyUp = (e: KeyboardEvent) => {
+            const isInputFocused = document.activeElement === inputRef.current;
+            
             // Only stop voice if spacebar released and currently listening
             if (e.code === "Space" && isListening) {
                 e.preventDefault();
@@ -167,17 +227,79 @@ function App() {
                     }
                 }, 100);
             }
+            
+            // Only process menu shortcuts if input is not focused
+            if (!isInputFocused) {
+                if (e.key.toUpperCase() === "F") {
+                    setIsFastForwarding(false);
+                }
+            }
         };
+        
         window.addEventListener("keydown", handleKeyDown);
         window.addEventListener("keyup", handleKeyUp);
         return () => {
             window.removeEventListener("keydown", handleKeyDown);
             window.removeEventListener("keyup", handleKeyUp);
         };
-    }, [isListening, transcript, startVoice, stopVoice, resetVoice]);
+    }, [isListening, transcript, startVoice, stopVoice, resetVoice, isMenuOpen, isPaused]);
+
+    // Handle pause/play effect
+    useEffect(() => {
+        if (!isPaused) {
+            // Resume: unpause audio if it's paused
+            if (currentAudioRef.current) {
+                if (currentAudioRef.current.paused) {
+                    currentAudioRef.current.play().catch(() => {});
+                }
+            }
+        } else {
+            // Pause: pause the audio
+            if (currentAudioRef.current) {
+                if (!currentAudioRef.current.paused) {
+                    currentAudioRef.current.pause();
+                }
+            }
+        }
+    }, [isPaused]);
+
+    function handleStop() {
+        if (debateAbortRef.current && !debateAbortRef.current.signal.aborted) {
+            debateAbortRef.current.abort();
+        }
+        setIsPaused(false);
+        setIsFastForwarding(false);
+        setSubmittedQuestion("");
+        setFinishedLines([]);
+        setCurrentLine(null);
+        setThinkingName(null);
+        setCurrentPhilosopher(null);
+        clearQuestion();
+    }
+
+    function handleIntroduction() {
+        // Placeholder for future introduction functionality
+        console.log("Introduction button clicked");
+    }
 
     return (
         <div className="app-container">
+            {/* Menu overlay */}
+            {isMenuOpen && (
+                <Menu
+                    isMenuOpen={isMenuOpen}
+                    isPaused={isPaused}
+                    isFastForwarding={isFastForwarding}
+                    isVoiceEnabled={isVoiceEnabled}
+                    imageSet={imageSet}
+                    onPausePlay={() => setIsPaused(!isPaused)}
+                    onStop={handleStop}
+                    onFastForward={(isActive: boolean) => setIsFastForwarding(isActive)}
+                    onImageSetChange={setImageSet}
+                    onVoiceToggle={(enabled: boolean) => setIsVoiceEnabled(enabled)}
+                    onIntroduction={handleIntroduction}
+                />
+            )}
             <div className="input-section">
                 <input
                     ref={inputRef}
@@ -223,6 +345,8 @@ function App() {
                 currentLine={currentLine}
                 isListening={isListening}
                 liveTranscript={transcript}
+                isFastForwarding={isFastForwarding}
+                isPaused={isPaused}
             />
         </div>
     );
