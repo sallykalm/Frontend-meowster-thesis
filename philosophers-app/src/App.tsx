@@ -25,6 +25,20 @@ function App() {
     // AbortController to interrupt debate loop when spacebar is pressed
     const debateAbortRef = useRef<AbortController | null>(null);
 
+    const [dotCount, setDotCount] = useState(1);
+
+    // Animate the dots in the live transcript
+  useEffect(() => {
+    // Vi animerar bara om vi lyssnar och transkriptionen är tom
+    if (!isListening || transcript.trim() !== '') return;
+
+    const interval = setInterval(() => {
+      setDotCount((prev) => (prev === 3 ? 1 : prev + 1));
+    }, 400);
+
+    return () => clearInterval(interval);
+  }, [isListening, transcript]);
+
     async function startDebate(questionText: string) {
         // Create a new AbortController for this debate
         debateAbortRef.current = new AbortController();
@@ -187,19 +201,20 @@ function App() {
                 thinkingName={thinkingName}
                 currentPhilosopher={currentPhilosopher}
             />
-            {/* Show the submitted question or live transcript while listening */}
+            {/* 1. Visar den inskickade frågan när vi INTE spelar in */}
             {submittedQuestion && (
                 <div className="user-question">Question: {submittedQuestion}</div>
             )}
-            {isListening && transcript && !submittedQuestion && (
-                <div className="user-question">Question: {transcript}</div>
+            
+            {/* 2. Visar live-transkriptionen på EXAKT samma plats när vi lyssnar */}
+            {isListening && !submittedQuestion && (
+                <div className="user-question" style={{ display: 'flex', justifyContent: 'center' }}>
+                    <div className="live-transcript">
+                        {/* Om transcript är tomt visar vi de animerade punkterna, annars texten */}
+                        {transcript.trim() ? transcript : '.'.repeat(dotCount)}
+                    </div>
+                </div>
             )}
-            <DiscussionLog
-                finishedLines={finishedLines}
-                currentLine={currentLine}
-                isListening={isListening}
-                liveTranscript={transcript}
-            />
         </div>
     );
 }
