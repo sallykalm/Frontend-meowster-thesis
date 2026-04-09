@@ -1,4 +1,4 @@
-import { submitQuestion, getNextResponse } from "./api";
+import { submitQuestion, getNextResponse, fetchIntroductions } from "./api";
 import { PORT } from "./constants";
 import { useState, useEffect, useRef } from "react";
 import DiscussionLog from "./DiscussionLog";
@@ -111,6 +111,58 @@ function App() {
         }
     }
 
+    async function playIntroductions() {
+        const intros = await fetchIntroductions();
+        if (!intros.length) return;
+
+        debateAbortRef.current = new AbortController();
+        setFinishedLines([]);
+        setCurrentLine(null);
+        setSubmittedQuestion("");
+
+        for (const intro of intros) {
+            if (debateAbortRef.current?.signal.aborted) break;
+
+            setCurrentPhilosopher(intro.philosopher);
+            setThinkingName(intro.philosopher);
+
+            let audioEndPromise: Promise<void> = Promise.resolve();
+            if (intro.audio_url) {
+                const audio = new Audio(`http://localhost:${PORT}${intro.audio_url}`);
+                audioEndPromise = new Promise<void>((res) => {
+                    audio.addEventListener('ended', () => res(), { once: true });
+                    audio.addEventListener('error', () => res(), { once: true });
+                    audio.play().catch(() => res());
+                });
+            }
+
+            const lines = splitIntoLines(intro.text);
+            for (const line of lines) {
+                if (debateAbortRef.current?.signal.aborted) break;
+                await new Promise<void>((resolve) => {
+                    setCurrentLine({
+                        id: Date.now() + Math.random(),
+                        philosopher: intro.philosopher,
+                        text: line,
+                        isNew: true,
+                        onComplete: () => {
+                            setFinishedLines((prev) =>
+                                [...prev, { id: Date.now() + Math.random(), philosopher: intro.philosopher, text: line, isNew: false }].slice(-3)
+                            );
+                            setCurrentLine(null);
+                            resolve();
+                        },
+                    });
+                });
+            }
+
+            await audioEndPromise;
+            setThinkingName(null);
+        }
+
+        setCurrentPhilosopher(null);
+    }
+
     function splitIntoLines(text: string, maxLen = 80) {
         const lines: string[] = [];
         let t = text;
@@ -126,6 +178,12 @@ function App() {
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            // Ctrl+I: play philosopher introductions
+            if (e.ctrlKey && e.key === "i") {
+                e.preventDefault();
+                playIntroductions();
+                return;
+            }
             // If spacebar pressed, abort any ongoing debate
             if (e.code === "Space") {
                 if (debateAbortRef.current && !debateAbortRef.current.signal.aborted) {
@@ -160,7 +218,7 @@ function App() {
             window.removeEventListener("keydown", handleKeyDown);
             window.removeEventListener("keyup", handleKeyUp);
         };
-    }, [isListening, transcript, startVoice, stopVoice, resetVoice]);
+    }, [isListening, transcript, startVoice, stopVoice, resetVoice, playIntroductions]);
 
     return (
         <div className="app-container">

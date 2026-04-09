@@ -91,7 +91,7 @@ const DiscussionLog = ({
                       style={{ opacity }}
                     >
                       {line.isNew && isCurrent ? (
-                        <Typewriter text={line.text} onComplete={line.onComplete} />
+                        <Typewriter text={line.text} speed={PHILOSOPHER_CONFIG[line.philosopher]?.typewriterSpeed} onComplete={line.onComplete} />
                       ) : (
                         line.text
                       )}

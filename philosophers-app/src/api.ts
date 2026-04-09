@@ -1,5 +1,11 @@
 import { BASE_URL } from './constants';
 
+export interface IntroductionInfo {
+  philosopher: string;
+  text: string;
+  audio_url?: string | null;
+}
+
 export interface ApiResponse {
   philosopher: string;
   text: string;
@@ -43,6 +49,17 @@ export async function getNextResponse(): Promise<ApiResponse | null> {
   } catch (error) {
     console.error("Error getting next response:", error);
     return null;
+  }
+}
+
+export async function fetchIntroductions(): Promise<IntroductionInfo[]> {
+  try {
+    const response = await fetch(`${BASE_URL}introductions`);
+    if (!response.ok) return [];
+    return await response.json();
+  } catch (error) {
+    console.error("Error fetching introductions:", error);
+    return [];
   }
 }
 

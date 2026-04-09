@@ -12,12 +12,12 @@ export const COLORS: Record<string, string> = {
   "moderator": "#FFFFFF"  
 };
 
-export const PHILOSOPHER_CONFIG: Record<string, { displayName: string, filePrefix: string }> = {
-  "Flusser": { displayName: "Flusser-AI", filePrefix: "flusser" },
-  "Weizenbaum": { displayName: "Weizenbaum-AI", filePrefix: "weizenbaum" },
-  "Virilio": { displayName: "Virilio-AI", filePrefix: "virilio" },
-  "Weibel": { displayName: "Weibel-AI", filePrefix: "weibel" },
-  "Moderator": { displayName: "System", filePrefix: "moderator" }
+export const PHILOSOPHER_CONFIG: Record<string, { displayName: string, filePrefix: string, typewriterSpeed: number }> = {
+  "Flusser": { displayName: "Flusser-AI", filePrefix: "flusser", typewriterSpeed: 118 },
+  "Weizenbaum": { displayName: "Weizenbaum-AI", filePrefix: "weizenbaum", typewriterSpeed: 90 },
+  "Virilio": { displayName: "Virilio-AI", filePrefix: "virilio", typewriterSpeed: 75 },
+  "Weibel": { displayName: "Weibel-AI", filePrefix: "weibel", typewriterSpeed: 75 },
+  "Moderator": { displayName: "System", filePrefix: "moderator", typewriterSpeed: 60 }
 };
 
 export const PORT = 15567;
