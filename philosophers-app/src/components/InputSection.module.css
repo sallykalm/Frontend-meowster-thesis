@@ -31,6 +31,23 @@
   cursor: not-allowed;
 }
 
+/* Minimal mode styles */
+.inputMinimal {
+  composes: input;
+  color: transparent;
+  text-shadow: none;
+  caret-color: transparent;
+  padding-bottom: 8px;
+  padding-top: 8px;
+  border-bottom-color: #000;
+  transition: border-bottom-color 0.3s ease, caret-color 0.3s ease;
+}
+
+.inputMinimal:focus {
+  border-bottom-color: #aaa;
+  caret-color: #fff;
+}
+
 .button {
   background: transparent;
   border: 1px solid #555;

@@ -6,12 +6,16 @@ interface MenuProps {
   isPaused: boolean;
   isFastForwarding: boolean;
   isVoiceEnabled: boolean;
+  isButtonsVisible: boolean;
+  isInputMinimal: boolean;
   imageSet: number;
   onPausePlay: () => void;
   onStop: () => void;
   onFastForward: (isActive: boolean) => void;
   onImageSetChange: (set: 1 | 2 | 3 | 4) => void;
   onVoiceToggle: (enabled: boolean) => void;
+  onButtonsToggle: (visible: boolean) => void;
+  onInputModeToggle: (minimal: boolean) => void;
   onIntroduction: () => void;
 }
 
@@ -20,12 +24,16 @@ const Menu = ({
   isPaused,
   isFastForwarding,
   isVoiceEnabled,
+  isButtonsVisible,
+  isInputMinimal,
   imageSet,
   onPausePlay,
   onStop,
   onFastForward,
   onImageSetChange,
   onVoiceToggle,
+  onButtonsToggle,
+  onInputModeToggle,
   onIntroduction,
 }: MenuProps) => {
   const fastForwardButtonRef = useRef<HTMLButtonElement>(null);
@@ -52,6 +60,16 @@ const Menu = ({
   // Handle voice toggle click
   const handleVoiceToggleClick = () => {
     onVoiceToggle(!isVoiceEnabled);
+  };
+
+  // Handle buttons visibility toggle click
+  const handleButtonsToggleClick = () => {
+    onButtonsToggle(!isButtonsVisible);
+  };
+
+  // Handle input mode toggle click
+  const handleInputModeToggleClick = () => {
+    onInputModeToggle(!isInputMinimal);
   };
 
   // Handle image set button clicks
@@ -155,6 +173,36 @@ const Menu = ({
             </div>
             <div className="menu-button-status">
               {isVoiceEnabled ? 'ON' : 'OFF'}
+            </div>
+          </button>
+
+          {/* Buttons visibility toggle */}
+          <button
+            className={`menu-button ${isButtonsVisible ? 'active' : ''}`}
+            onClick={handleButtonsToggleClick}
+            title="Toggle input buttons visibility"
+          >
+            <div className="menu-button-symbol">B</div>
+            <div className="menu-button-label">
+              {isButtonsVisible ? 'SHOW' : 'HIDE'}
+            </div>
+            <div className="menu-button-status">
+              {isButtonsVisible ? 'ON' : 'OFF'}
+            </div>
+          </button>
+
+          {/* Input mode toggle */}
+          <button
+            className={`menu-button ${!isInputMinimal ? 'active' : ''}`}
+            onClick={handleInputModeToggleClick}
+            title="Toggle input field visibility mode"
+          >
+            <div className="menu-button-symbol">T</div>
+            <div className="menu-button-label">
+              {isInputMinimal ? 'HIDDEN' : 'NORMAL'}
+            </div>
+            <div className="menu-button-status">
+              {isInputMinimal ? 'OFF' : 'ON'}
             </div>
           </button>
         </div>

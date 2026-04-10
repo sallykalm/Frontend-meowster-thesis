@@ -18,6 +18,8 @@ function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [isFastForwarding, setIsFastForwarding] = useState(false);
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
+  const [isButtonsVisible, setIsButtonsVisible] = useState(false);
+  const [isInputMinimal, setIsInputMinimal] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -161,12 +163,16 @@ function App() {
           isPaused={isPaused}
           isFastForwarding={isFastForwarding}
           isVoiceEnabled={isVoiceEnabled}
+          isInputMinimal={isInputMinimal}
           imageSet={imageSet}
+          isButtonsVisible={isButtonsVisible}
           onPausePlay={() => setIsPaused(!isPaused)}
           onStop={handleStop}
           onFastForward={(isActive: boolean) => setIsFastForwarding(isActive)}
           onImageSetChange={setImageSet}
           onVoiceToggle={(enabled: boolean) => setIsVoiceEnabled(enabled)}
+          onButtonsToggle={(visible: boolean) => setIsButtonsVisible(visible)}
+          onInputModeToggle={(minimal: boolean) => setIsInputMinimal(minimal)}
           onIntroduction={handleIntroduction}
         />
       )}
@@ -178,6 +184,8 @@ function App() {
         onVoiceToggle={handleVoiceToggle}
         isListening={isListening}
         disabled={isDebating}
+        isButtonsVisible={isButtonsVisible}
+        isMinimal={isInputMinimal}
       />
 
       <ImageGrid

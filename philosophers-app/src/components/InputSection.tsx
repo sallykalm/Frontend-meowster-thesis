@@ -1,4 +1,5 @@
 import type { RefObject } from 'react';
+import { useState } from 'react';
 import styles from './InputSection.module.css';
 
 interface InputSectionProps {
@@ -9,6 +10,8 @@ interface InputSectionProps {
   onVoiceToggle: () => void;
   isListening: boolean;
   disabled: boolean;
+  isButtonsVisible?: boolean;
+  isMinimal?: boolean;
 }
 
 const InputSection = ({
@@ -19,7 +22,11 @@ const InputSection = ({
   onVoiceToggle,
   isListening,
   disabled,
+  isButtonsVisible = true,
+  isMinimal = false,
 }: InputSectionProps) => {
+  const [isFocused, setIsFocused] = useState(false);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       onSubmit(value);
@@ -35,12 +42,15 @@ const InputSection = ({
     >
       <input
         ref={inputRef}
-        className={styles.input}
+        className={`${styles.input} ${isMinimal ? styles.inputMinimal : ''}`}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="[ type your question here ]"
+        placeholder={isMinimal ? '' : '[ type your question here ]'}
         onKeyDown={handleKeyDown}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
         disabled={disabled}
+        data-focused={isFocused}
         aria-label="Your question"
         aria-disabled={disabled}
       />
@@ -49,6 +59,7 @@ const InputSection = ({
         className={styles.button}
         disabled={disabled || !value.trim()}
         aria-label="Submit question"
+        style={{ display: isButtonsVisible ? 'block' : 'none' }}
       >
         [ ↵ ]
       </button>
@@ -59,6 +70,7 @@ const InputSection = ({
         disabled={disabled}
         aria-label={isListening ? 'Stop voice input' : 'Start voice input (hold Space)'}
         aria-pressed={isListening}
+        style={{ display: isButtonsVisible ? 'block' : 'none' }}
       >
         {isListening ? '[ ◉ ]' : '[ ◎ ]'}
       </button>
