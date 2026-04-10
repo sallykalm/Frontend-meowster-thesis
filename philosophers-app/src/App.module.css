@@ -1,0 +1,45 @@
+.appContainer {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 40px 20px;
+  font-family: var(--font-mono);
+}
+
+.userQuestion {
+  color: var(--color-accent-pink);
+  text-align: center;
+  font-size: 1.2em;
+  margin: 2em auto 1em auto;
+  font-weight: bold;
+  letter-spacing: 1px;
+  max-width: 800px;
+  width: 100%;
+  padding: 0 20px;
+  box-sizing: border-box;
+}
+
+.liveTranscript {
+  color: #ffffff;
+  font-size: 1.3rem;
+  font-style: italic;
+  border-left: 3px solid var(--color-accent-pink);
+  padding-left: 15px;
+  display: inline-block;
+}
+
+.errorMessage {
+  color: #ff4444;
+  text-align: center;
+  font-size: 0.95rem;
+  margin: 1em auto;
+  max-width: 600px;
+  letter-spacing: 1px;
+  border: 1px solid #ff4444;
+  padding: 8px 16px;
+}
+
+@media (max-width: 480px) {
+  .appContainer {
+    padding: 20px 10px;
+  }
+}

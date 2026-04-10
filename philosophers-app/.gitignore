@@ -20,7 +20,8 @@ __pycache__/
 *.pyo
 .env
 .env.*
-
+!.env.example
+.claude
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -31,6 +32,15 @@ __pycache__/
 *.njsproj
 *.sln
 *.sw?
+
+
+# accidental TypeScript emit in source tree
+src/**/*.js
+src/**/*.js.map
+src/**/*.jsx
+vite.config.js
+vite.config.js.map
+
 
 # Personal WIP files
 WIP/

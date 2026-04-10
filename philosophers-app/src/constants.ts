@@ -1,15 +1,10 @@
 // Philosopher names, colors, API config
 export const COLORS: Record<string, string> = {
   "Flusser-AI": "#FA4616",
-  "flusser": "#FA4616",
   "Weizenbaum-AI": "#97D700",
-  "weizenbaum": "#97D700",
   "Virilio-AI": "#E0E721",
-  "virilio": "#E0E721",
   "Weibel-AI": "#8DC8E8",
-  "weibel": "#8DC8E8",
   "System": "#FFFFFF",
-  "moderator": "#FFFFFF"  
 };
 
 export const PHILOSOPHER_CONFIG: Record<string, { displayName: string, filePrefix: string }> = {
@@ -20,6 +15,21 @@ export const PHILOSOPHER_CONFIG: Record<string, { displayName: string, filePrefi
   "Moderator": { displayName: "System", filePrefix: "moderator" }
 };
 
-export const PORT = 15567;
-export const BASE_URL = `http://localhost:${PORT}/api/`;
+const API_HOST = import.meta.env.VITE_API_HOST ?? 'localhost';
+const API_PORT = import.meta.env.VITE_API_PORT ?? '15567';
+export const PORT = parseInt(API_PORT, 10);
+export const BASE_URL = `http://${API_HOST}:${API_PORT}/api/`;
+
+// Debate timing and display
+export const MAX_LINE_LENGTH = 80;
+export const THINKING_DELAY_MS = 5000;
+export const FINISHED_LINES_KEPT = 3;
+export const MAX_VISIBLE_LINES = 4;
+export const LINE_OPACITIES = [1, 1, 0.6, 0.3]; // newest → oldest
+
+// Typewriter
+export const TYPEWRITER_SPEED_MS = 40;
+
+// Speech recognition
+export const SPEECH_LANGUAGE = 'en-US';
 
