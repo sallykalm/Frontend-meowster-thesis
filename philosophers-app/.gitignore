@@ -41,7 +41,7 @@ src/**/*.jsx
 vite.config.js
 vite.config.js.map
 
-
+*.tsbuildinfo
 # Personal WIP files
 WIP/
 copilot-instructions-max.md
