@@ -26,7 +26,7 @@ const Credits = ({ onClose }: CreditsProps) => {
           <div className={styles.sectionTitle}>Artistic &amp; Conceptual Direction</div>
           <div className={styles.entry}>
             Monika Fleischmann &amp; Wolfgang Strauss
-            <span>Artistic and conceptual direction · Supervision</span>
+            <span>Artistic and conceptual direction</span>
           </div>
         </div>
 

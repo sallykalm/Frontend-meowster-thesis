@@ -64,9 +64,8 @@
 .groupNote {
   font-size: 0.8rem;
   letter-spacing: 1px;
-  color: var(--color-accent-pink);
+  color: #aaa;
   margin-bottom: 0.4em;
-  opacity: 0.8;
 }
 
 .entry {
