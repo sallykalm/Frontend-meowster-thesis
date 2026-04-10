@@ -82,6 +82,7 @@
   width: 160px;
   height: 160px;
   image-rendering: pixelated;
+  margin-top: 0.6em;
 }
 
 /* Credits entries */
