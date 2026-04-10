@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { submitQuestion, getNextResponse } from '../api';
+import { submitQuestion, getNextResponse, clearQuestion } from '../api';
 import type { ApiResponse } from '../api';
 import { BASE_URL, MAX_LINE_LENGTH, THINKING_DELAY_MS, FINISHED_LINES_KEPT } from '../constants';
 import type { ChatMessage } from '../types';
@@ -46,7 +46,7 @@ interface UseDebateReturn {
   submittedQuestion: string;
   isDebating: boolean;
   error: string | null;
-  startDebate: (question: string) => Promise<void>;
+  startDebate: (question: string, isVoiceEnabled?: boolean) => Promise<void>;
   abortDebate: () => void;
 }
 
@@ -108,8 +108,11 @@ export function useDebate(): UseDebateReturn {
     await audioPromise;
   }
 
-  async function runDebateLoop(question: string, signal: AbortSignal): Promise<void> {
-    const submitted = await submitQuestion(question);
+  async function runDebateLoop(question: string, signal: AbortSignal, isVoiceEnabled: boolean = true): Promise<void> {
+    // Clear any previous session state before starting a new debate
+    await clearQuestion();
+    
+    const submitted = await submitQuestion(question, isVoiceEnabled);
     if (!submitted) {
       setError('Failed to submit question — is the backend running?');
       return;
@@ -129,7 +132,7 @@ export function useDebate(): UseDebateReturn {
     }
   }
 
-  async function startDebate(question: string): Promise<void> {
+  async function startDebate(question: string, isVoiceEnabled: boolean = true): Promise<void> {
     setError(null);
     setIsDebating(true);
     setFinishedLines([]);
@@ -142,7 +145,7 @@ export function useDebate(): UseDebateReturn {
     const { signal } = abortRef.current;
 
     try {
-      await runDebateLoop(question, signal);
+      await runDebateLoop(question, signal, isVoiceEnabled);
     } catch (e) {
       console.error('Debate error:', e);
       setError('Something went wrong. Please try again.');

@@ -9,6 +9,8 @@ interface DiscussionLogProps {
   currentLine: ChatMessage | null;
   isListening: boolean;
   liveTranscript: string;
+  isFastForwarding?: boolean;
+  isPaused?: boolean;
 }
 
 interface PhilosopherBlock {
@@ -23,6 +25,8 @@ const DiscussionLog = ({
   currentLine,
   isListening,
   liveTranscript,
+  isFastForwarding = false,
+  isPaused = false,
 }: DiscussionLogProps) => {
   const lines = [...finishedLines, ...(currentLine ? [currentLine] : [])];
   const visibleLines = lines.slice(-MAX_VISIBLE_LINES);
@@ -32,10 +36,16 @@ const DiscussionLog = ({
     const displayName = PHILOSOPHER_CONFIG[line.philosopher]?.displayName ?? line.philosopher;
     const nameColor = COLORS[displayName] ?? '#fff';
     const lastBlock = philosopherBlocks[philosopherBlocks.length - 1];
+
     if (lastBlock && lastBlock.philosopher === line.philosopher) {
       lastBlock.lineIndices.push(idx);
     } else {
-      philosopherBlocks.push({ philosopher: line.philosopher, displayName, nameColor, lineIndices: [idx] });
+      philosopherBlocks.push({
+        philosopher: line.philosopher,
+        displayName,
+        nameColor,
+        lineIndices: [idx],
+      });
     }
   });
 
@@ -68,7 +78,12 @@ const DiscussionLog = ({
                 return (
                   <div key={line.id} className={styles.chatBubble} style={{ opacity }}>
                     {line.isNew && isCurrent ? (
-                      <Typewriter text={line.text} onComplete={line.onComplete} />
+                      <Typewriter
+                        text={line.text}
+                        onComplete={line.onComplete}
+                        isFastForwarding={isFastForwarding}
+                        isPaused={isPaused}
+                      />
                     ) : (
                       line.text
                     )}

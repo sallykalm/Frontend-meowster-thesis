@@ -2,16 +2,24 @@ import { useState, useEffect, useRef } from 'react';
 import DiscussionLog from './components/DiscussionLog';
 import ImageGrid from './components/ImageGrid';
 import InputSection from './components/InputSection';
+import Menu from './components/Menu';
 import { useWebSpeech } from './hooks/useWebSpeech';
 import { useDotAnimation } from './hooks/useDotAnimation';
 import { useDebate } from './hooks/useDebate';
+import { clearQuestion } from './api';
+// import { PORT } from './constants';
 import styles from './App.module.css';
 import './App.css';
 
 function App() {
   const [imageSet, setImageSet] = useState(1);
   const [userQuestion, setUserQuestion] = useState('');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isFastForwarding, setIsFastForwarding] = useState(false);
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const { isListening, transcript, start: startVoice, stop: stopVoice, reset: resetVoice } = useWebSpeech();
   const dotCount = useDotAnimation(isListening && !transcript.trim());
@@ -20,7 +28,7 @@ function App() {
   function handleSubmit(question: string) {
     if (!question.trim() || isDebating) return;
     setUserQuestion('');
-    void startDebate(question.trim());
+    void startDebate(question.trim(), isVoiceEnabled);
   }
 
   function handleVoiceToggle() {
@@ -28,7 +36,7 @@ function App() {
       stopVoice();
       setTimeout(() => {
         if (transcript.trim()) {
-          void startDebate(transcript.trim());
+          void startDebate(transcript.trim(), isVoiceEnabled);
           resetVoice();
         }
       }, 100);
@@ -37,30 +45,83 @@ function App() {
     }
   }
 
+  function handleStop() {
+    if (isDebating) {
+      abortDebate();
+    }
+    setIsPaused(false);
+    setIsFastForwarding(false);
+    setUserQuestion('');
+    clearQuestion().catch(console.error);
+  }
+
+  function handleIntroduction() {
+    // Placeholder for future introduction functionality
+    console.log('Introduction button clicked');
+  }
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if input is focused
+      const isInputFocused = document.activeElement === inputRef.current;
+
+      // If spacebar pressed, abort any ongoing debate
       if (e.code === 'Space') {
         if (isDebating) {
           abortDebate();
           return;
         }
-        if (!isListening && document.activeElement !== inputRef.current) {
+        if (!isListening && !isInputFocused) {
           e.preventDefault();
           startVoice();
+        }
+      }
+
+      // Menu shortcuts - only if input is not focused
+      if (e.key.toUpperCase() === 'M' && !isInputFocused) {
+        setIsMenuOpen(!isMenuOpen);
+      }
+
+      // Only process menu shortcuts if input is not focused
+      if (!isInputFocused) {
+        if (e.key.toUpperCase() === 'P') {
+          setIsPaused(!isPaused);
+        }
+        if (e.key.toUpperCase() === 'Q') {
+          handleStop();
+        }
+        if (e.key.toUpperCase() === 'F') {
+          setIsFastForwarding(true);
+        }
+        if (e.key.toUpperCase() === 'V') {
+          setIsVoiceEnabled(!isVoiceEnabled);
+        }
+        if (e.key.toUpperCase() === 'I') {
+          handleIntroduction();
         }
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      const isInputFocused = document.activeElement === inputRef.current;
+
+      // Only stop voice if spacebar released and currently listening
       if (e.code === 'Space' && isListening) {
         e.preventDefault();
         stopVoice();
         setTimeout(() => {
           if (transcript.trim()) {
-            void startDebate(transcript.trim());
+            void startDebate(transcript.trim(), isVoiceEnabled);
             resetVoice();
           }
         }, 100);
+      }
+
+      // Only process menu shortcuts if input is not focused
+      if (!isInputFocused) {
+        if (e.key.toUpperCase() === 'F') {
+          setIsFastForwarding(false);
+        }
       }
     };
 
@@ -70,10 +131,45 @@ function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isListening, isDebating, transcript, startVoice, stopVoice, resetVoice, startDebate, abortDebate]);
+  }, [isListening, isDebating, transcript, startVoice, stopVoice, resetVoice, startDebate, abortDebate, isMenuOpen, isPaused, isVoiceEnabled, handleStop]);
+
+  // Handle pause/play effect
+  useEffect(() => {
+    if (!isPaused) {
+      // Resume: unpause audio if it's paused
+      if (currentAudioRef.current) {
+        if (currentAudioRef.current.paused) {
+          currentAudioRef.current.play().catch(() => {});
+        }
+      }
+    } else {
+      // Pause: pause the audio
+      if (currentAudioRef.current) {
+        if (!currentAudioRef.current.paused) {
+          currentAudioRef.current.pause();
+        }
+      }
+    }
+  }, [isPaused]);
 
   return (
     <main className={styles.appContainer} aria-busy={!!thinkingName || isDebating}>
+      {/* Menu overlay */}
+      {isMenuOpen && (
+        <Menu
+          isMenuOpen={isMenuOpen}
+          isPaused={isPaused}
+          isFastForwarding={isFastForwarding}
+          isVoiceEnabled={isVoiceEnabled}
+          imageSet={imageSet}
+          onPausePlay={() => setIsPaused(!isPaused)}
+          onStop={handleStop}
+          onFastForward={(isActive: boolean) => setIsFastForwarding(isActive)}
+          onImageSetChange={setImageSet}
+          onVoiceToggle={(enabled: boolean) => setIsVoiceEnabled(enabled)}
+          onIntroduction={handleIntroduction}
+        />
+      )}
       <InputSection
         inputRef={inputRef}
         value={userQuestion}
@@ -117,6 +213,8 @@ function App() {
         currentLine={currentLine}
         isListening={isListening}
         liveTranscript={transcript}
+        isFastForwarding={isFastForwarding}
+        isPaused={isPaused}
       />
     </main>
   );

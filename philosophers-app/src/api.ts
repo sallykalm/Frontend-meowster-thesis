@@ -27,12 +27,12 @@ export async function fetchPhilosophers(): Promise<string[] | null> {
 }
 
 /** Submits a question to start a new debate. Returns true if accepted by backend. */
-export async function submitQuestion(text: string): Promise<boolean> {
+export async function submitQuestion(text: string, generateAudio: boolean = true): Promise<boolean> {
   try {
     const response = await fetch(`${BASE_URL}question`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, generate_audio: generateAudio }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     return response.ok;
