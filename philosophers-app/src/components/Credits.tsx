@@ -17,61 +17,63 @@ const Credits = ({ onClose }: CreditsProps) => {
   return (
     <div className={styles.overlay} onClick={onClose} role="dialog" aria-label="Credits">
       <div className={styles.box} onClick={(e) => e.stopPropagation()}>
+
         <div className={styles.title}>MIND CIRCUITS</div>
         <div className={styles.subtitle}>Philosophers' Agents</div>
 
         <div className={styles.divider}>{'─'.repeat(48)}</div>
 
-        <div className={styles.section}>
-          <div className={styles.sectionTitle}>Artistic &amp; Conceptual Direction</div>
-          <div className={styles.entry}>
-            Monika Fleischmann &amp; Wolfgang Strauss
-            <span>Artistic and conceptual direction</span>
+        <div className={styles.columns}>
+          <div className={styles.creditsList}>
+
+            <div className={styles.entry}>
+              <div className={styles.name}>Monika Fleischmann &amp; Wolfgang Strauss</div>
+              <span>Artistic Direction &amp; Concept</span>
+            </div>
+
+            <div className={styles.entry}>
+              <div className={styles.name}>Jasmina Marić, PhD</div>
+              <span>Project lead &amp; Supervision, Chalmers University</span>
+            </div>
+
+            <div className={styles.entry}>
+              <div className={styles.name}>Max Hagman &amp; Sally Kalm</div>
+              <span>UI/UX &amp; Front-End Development,<br />Chalmers Master's thesis students</span>
+            </div>
+
+            <div className={styles.entry}>
+              <div className={styles.name}>Rasti Tengman</div>
+              <span>Back-End Development,<br />Chalmers Master's thesis student</span>
+            </div>
+
+            <div className={styles.entry}>
+              <div className={styles.name}>Sebastian Norlin</div>
+              <span>Back-End Development &amp; Supervision, Scionova</span>
+            </div>
+
+            <div className={styles.entry}>
+              <div className={styles.name}>Fredrik Johansson</div>
+              <span>Value Coordinator, Scionova</span>
+            </div>
+
+            <div className={styles.entry}>
+              <div className={styles.name}>Sahil Lakhe</div>
+              <span>Back-End Development, Scionova</span>
+            </div>
+
+          </div>
+
+          <div className={styles.qrBlock}>
+            <div className={styles.qrLabel}>Scan to fill out the survey:</div>
+            <img
+              className={styles.qrImage}
+              src="/images/qr-survey.png"
+              alt="Survey QR code"
+            />
           </div>
         </div>
 
-        <div className={styles.section}>
-          <div className={styles.sectionTitle}>Research</div>
-          <div className={styles.entry}>
-            Jasmina Marić PHD
-            <span>Chalmers University of Technology · Research lead · Supervision</span>
-          </div>
-        </div>
-
-        <div className={styles.section}>
-          <div className={styles.sectionTitle}>Master's Project</div>
-          <div className={styles.groupNote}>
-            Interaction Design and Technologies · Chalmers University of Technology
-          </div>
-          <div className={styles.entry}>
-            Max Hagman
-            <span>UI/UX · Front-end</span>
-          </div>
-          <div className={styles.entry}>
-            Sally Kalm
-            <span>UI/UX · Front-end</span>
-          </div>
-          <div className={styles.entry}>
-            Rasti Tengman
-            <span>Backend · Front-end</span>
-          </div>
-        </div>
-
-        <div className={styles.section}>
-          <div className={styles.sectionTitle}>Scionova · Göteborg, Sweden</div>
-          <div className={styles.entry}>
-            Fredrik Johansson
-            <span>Project Coordinator</span>
-          </div>
-          <div className={styles.entry}>
-            Sahil Lakhe
-            <span>UI · AI core &amp; backend integration</span>
-          </div>
-          <div className={styles.entry}>
-            Sebastian Norlin
-            <span>Software architecture · Scientific supervision</span>
-          </div>
-        </div>
+        <div className={styles.divider}>{'─'.repeat(48)}</div>
 
         <div className={styles.section}>
           <div className={styles.sectionTitle}>Philosophers</div>

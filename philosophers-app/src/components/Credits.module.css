@@ -17,13 +17,15 @@
 }
 
 .box {
-  width: 560px;
-  max-width: 90vw;
+  width: 760px;
+  max-width: 94vw;
+  max-height: 90vh;
+  overflow-y: auto;
   border: 1px solid #555;
   padding: 40px;
   display: flex;
   flex-direction: column;
-  gap: 1.6em;
+  gap: 1.4em;
 }
 
 .title {
@@ -44,14 +46,69 @@
 
 .divider {
   color: #444;
-  letter-spacing: 0;
   font-size: 0.85rem;
 }
 
+/* Two-column layout: credits list + QR code */
+.columns {
+  display: flex;
+  gap: 40px;
+  align-items: flex-start;
+}
+
+.creditsList {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+  flex: 1;
+}
+
+.qrBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6em;
+  flex-shrink: 0;
+}
+
+.qrLabel {
+  font-size: 0.8rem;
+  letter-spacing: 1px;
+  color: #aaa;
+  text-align: center;
+}
+
+.qrImage {
+  width: 160px;
+  height: 160px;
+  image-rendering: pixelated;
+}
+
+/* Credits entries */
+.entry {
+  font-size: 0.9rem;
+  letter-spacing: 1px;
+  line-height: 1.5;
+}
+
+.name {
+  font-weight: bold;
+  color: #fff;
+}
+
+.entry span {
+  display: block;
+  color: #aaa;
+  font-size: 0.8rem;
+  font-style: italic;
+  margin-top: 0.1em;
+}
+
+/* Philosophers section */
 .section {
   display: flex;
   flex-direction: column;
-  gap: 0.4em;
+  gap: 0.3em;
 }
 
 .sectionTitle {
@@ -59,26 +116,7 @@
   letter-spacing: 2px;
   color: #888;
   text-transform: uppercase;
-}
-
-.groupNote {
-  font-size: 0.8rem;
-  letter-spacing: 1px;
-  color: #aaa;
-  margin-bottom: 0.4em;
-}
-
-.entry {
-  font-size: 0.9rem;
-  letter-spacing: 1px;
-  line-height: 1.6;
-}
-
-.entry span {
-  display: block;
-  color: #aaa;
-  font-size: 0.8rem;
-  margin-top: 0.1em;
+  margin-bottom: 0.2em;
 }
 
 .venue {
@@ -93,5 +131,15 @@
   font-size: 0.8rem;
   color: #555;
   letter-spacing: 2px;
-  margin-top: 0.4em;
+}
+
+/* Narrow screens: stack columns */
+@media (max-width: 600px) {
+  .columns {
+    flex-direction: column;
+  }
+
+  .qrBlock {
+    align-self: center;
+  }
 }
