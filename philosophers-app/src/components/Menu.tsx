@@ -17,6 +17,8 @@ interface MenuProps {
   onButtonsToggle: (visible: boolean) => void;
   onInputModeToggle: (minimal: boolean) => void;
   onIntroduction: () => void;
+  onCredits: () => void;
+  onClose: () => void;
 }
 
 const Menu = ({
@@ -35,6 +37,8 @@ const Menu = ({
   onButtonsToggle,
   onInputModeToggle,
   onIntroduction,
+  onCredits,
+  onClose,
 }: MenuProps) => {
   const fastForwardButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -149,6 +153,21 @@ const Menu = ({
         {/* Divider */}
         <div className="menu-divider">│</div>
 
+        {/* Hide menu button */}
+        <div className="menu-group">
+          <button
+            className="menu-button"
+            onClick={onClose}
+            title="Hide menu (shortcut: M)"
+          >
+            <div className="menu-button-symbol">M</div>
+            <div className="menu-button-label">HIDE</div>
+          </button>
+        </div>
+
+        {/* Divider */}
+        <div className="menu-divider">│</div>
+
         {/* Future features and voice */}
         <div className="menu-group">
           {/* Introduction button */}
@@ -159,6 +178,16 @@ const Menu = ({
           >
             <div className="menu-button-symbol">I</div>
             <div className="menu-button-label">INTRO</div>
+          </button>
+
+          {/* Credits button */}
+          <button
+            className="menu-button"
+            onClick={onCredits}
+            title="Credits (shortcut: C)"
+          >
+            <div className="menu-button-symbol">C</div>
+            <div className="menu-button-label">CREDITS</div>
           </button>
 
           {/* Voice toggle button */}

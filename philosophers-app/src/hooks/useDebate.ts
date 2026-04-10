@@ -78,10 +78,11 @@ export function useDebate(): UseDebateReturn {
     }
 
     setThinkingName(data.philosopher);
-    setCurrentPhilosopher(data.philosopher);
 
     const audioPromise = data.audio_url ? playAudio(data.audio_url) : Promise.resolve();
 
+    // Trigger GIF only when text is about to render, not during thinking delay
+    setCurrentPhilosopher(data.philosopher);
     for (const line of formatLines(data.text)) {
       if (signal.aborted) break;
       await new Promise<void>((resolve) => {
@@ -130,6 +131,10 @@ export function useDebate(): UseDebateReturn {
 
       if (data.is_last) break;
     }
+    // Explicitly clear GIF/thinking state as soon as the loop exits, before
+    // the finally block in startDebate, so the GIF stops immediately.
+    setCurrentPhilosopher(null);
+    setThinkingName(null);
   }
 
   async function startDebate(question: string, isVoiceEnabled: boolean = true): Promise<void> {

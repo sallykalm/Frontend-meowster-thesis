@@ -1,5 +1,4 @@
 import Typewriter from './Typewriter';
-import VoiceIndicator from './VoiceIndicator';
 import { COLORS, PHILOSOPHER_CONFIG, MAX_VISIBLE_LINES, LINE_OPACITIES } from '../constants';
 import type { ChatMessage } from '../types';
 import styles from './DiscussionLog.module.css';
@@ -7,8 +6,6 @@ import styles from './DiscussionLog.module.css';
 interface DiscussionLogProps {
   finishedLines: ChatMessage[];
   currentLine: ChatMessage | null;
-  isListening: boolean;
-  liveTranscript: string;
   isFastForwarding?: boolean;
   isPaused?: boolean;
 }
@@ -23,8 +20,6 @@ interface PhilosopherBlock {
 const DiscussionLog = ({
   finishedLines,
   currentLine,
-  isListening,
-  liveTranscript,
   isFastForwarding = false,
   isPaused = false,
 }: DiscussionLogProps) => {
@@ -56,8 +51,6 @@ const DiscussionLog = ({
       aria-live="polite"
       aria-label="Philosopher debate"
     >
-      <VoiceIndicator isListening={isListening} liveTranscript={liveTranscript} />
-
       <div className={styles.discussionContent}>
         {philosopherBlocks.map((block, blockIdx) => (
           <div

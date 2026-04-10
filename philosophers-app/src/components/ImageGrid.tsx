@@ -19,6 +19,7 @@ interface ImageGridProps {
   typingPhilosopher: string | null;
   thinkingName: string | null;
   currentPhilosopher: string | null;
+  isPaused?: boolean;
 }
 
 /** Image sets that have animated GIF files available. */
@@ -30,6 +31,7 @@ const ImageGrid = ({
   typingPhilosopher,
   thinkingName,
   currentPhilosopher,
+  isPaused = false,
 }: ImageGridProps) => {
   const dotCount = useDotAnimation(!!thinkingName);
 
@@ -51,7 +53,7 @@ const ImageGrid = ({
     <div className={styles.imageGrid} role="img" aria-label="Philosopher portraits">
       {philosophers.map((baseName) => {
         const config = PHILOSOPHER_CONFIG[baseName]!;
-        const isGif = isSomeoneTyping && typingPhilosopher === baseName && GIF_SETS.has(imageSet);
+        const isGif = isSomeoneTyping && typingPhilosopher === baseName && GIF_SETS.has(imageSet) && !isPaused;
         const extension = isGif ? 'gif' : 'png';
         const imgSrc = `/images/${config.filePrefix}${imageSet}.${extension}`;
         const isThinking = thinkingName === baseName && currentPhilosopher !== baseName;

@@ -8,6 +8,9 @@ export interface ApiResponse {
 }
 
 const REQUEST_TIMEOUT_MS = 10_000;
+// Long-poll timeout must exceed the backend's own 90 s timeout so we always
+// receive a 504 (retriable) rather than a client-side AbortError (not retried).
+const LONG_POLL_TIMEOUT_MS = 100_000;
 const MAX_504_RETRIES = 6;
 const BACKOFF_INITIAL_MS = 500;
 const BACKOFF_MAX_MS = 5_000;
@@ -53,7 +56,7 @@ export async function getNextResponse(): Promise<ApiResponse | null> {
   for (let attempt = 0; attempt <= MAX_504_RETRIES; attempt++) {
     try {
       const response = await fetch(`${BASE_URL}next-response`, {
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(LONG_POLL_TIMEOUT_MS),
       });
 
       if (response.status === 504) {

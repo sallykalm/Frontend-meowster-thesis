@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import BootScreen from './components/BootScreen';
+import Credits from './components/Credits';
 import DiscussionLog from './components/DiscussionLog';
 import ImageGrid from './components/ImageGrid';
 import InputSection from './components/InputSection';
@@ -12,6 +14,8 @@ import styles from './App.module.css';
 import './App.css';
 
 function App() {
+  const [isBooting, setIsBooting] = useState(true);
+  const [isCreditsOpen, setIsCreditsOpen] = useState(false);
   const [imageSet, setImageSet] = useState(1);
   const [userQuestion, setUserQuestion] = useState('');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -38,19 +42,28 @@ function App() {
       stopVoice();
       setTimeout(() => {
         if (transcript.trim()) {
+          if (isDebating) abortDebate();
+          setIsPaused(false);
+          setIsFastForwarding(false);
           void startDebate(transcript.trim(), isVoiceEnabled);
           resetVoice();
         }
       }, 100);
     } else {
+      if (isDebating) abortDebate();
+      setIsPaused(false);
+      setIsFastForwarding(false);
       startVoice();
     }
   }
 
-  function handleIntroduction() {
-    // Placeholder for future introduction functionality
-    console.log('Introduction button clicked');
-  }
+  const handleIntroduction = useCallback(() => {
+    if (isDebating) return;
+    void startDebate(
+      'Please briefly introduce yourself and share your main philosophical perspective on technology and humanity.',
+      isVoiceEnabled,
+    );
+  }, [isDebating, startDebate, isVoiceEnabled]);
 
   const handleStop = useCallback(() => {
     if (isDebating) {
@@ -64,50 +77,31 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Check if input is focused
-      const isInputFocused = document.activeElement === inputRef.current;
+      if ((e.target as HTMLElement).tagName === 'INPUT') return;
 
-      // If spacebar pressed, abort any ongoing debate
       if (e.code === 'Space') {
         if (isDebating) {
           abortDebate();
           return;
         }
-        if (!isListening && !isInputFocused) {
+        if (!isListening) {
           e.preventDefault();
           startVoice();
         }
       }
 
-      // Menu shortcuts - only if input is not focused
-      if (e.key.toUpperCase() === 'M' && !isInputFocused) {
-        setIsMenuOpen(!isMenuOpen);
-      }
-
-      // Only process menu shortcuts if input is not focused
-      if (!isInputFocused) {
-        if (e.key.toUpperCase() === 'P') {
-          setIsPaused(!isPaused);
-        }
-        if (e.key.toUpperCase() === 'Q') {
-          handleStop();
-        }
-        if (e.key.toUpperCase() === 'F') {
-          setIsFastForwarding(true);
-        }
-        if (e.key.toUpperCase() === 'V') {
-          setIsVoiceEnabled(!isVoiceEnabled);
-        }
-        if (e.key.toUpperCase() === 'I') {
-          handleIntroduction();
-        }
-      }
+      if (e.key.toUpperCase() === 'M') setIsMenuOpen(!isMenuOpen);
+      if (e.key.toUpperCase() === 'P') setIsPaused(!isPaused);
+      if (e.key.toUpperCase() === 'Q') handleStop();
+      if (e.key.toUpperCase() === 'F') setIsFastForwarding(true);
+      if (e.key.toUpperCase() === 'V') setIsVoiceEnabled(!isVoiceEnabled);
+      if (e.key.toUpperCase() === 'I') handleIntroduction();
+      if (e.key.toUpperCase() === 'C') setIsCreditsOpen((o) => !o);
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      const isInputFocused = document.activeElement === inputRef.current;
+      if ((e.target as HTMLElement).tagName === 'INPUT') return;
 
-      // Only stop voice if spacebar released and currently listening
       if (e.code === 'Space' && isListening) {
         e.preventDefault();
         stopVoice();
@@ -119,12 +113,7 @@ function App() {
         }, 100);
       }
 
-      // Only process menu shortcuts if input is not focused
-      if (!isInputFocused) {
-        if (e.key.toUpperCase() === 'F') {
-          setIsFastForwarding(false);
-        }
-      }
+      if (e.key.toUpperCase() === 'F') setIsFastForwarding(false);
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -133,7 +122,7 @@ function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isListening, isDebating, transcript, startVoice, stopVoice, resetVoice, startDebate, abortDebate, isMenuOpen, isPaused, isVoiceEnabled, handleStop]);
+  }, [isListening, isDebating, transcript, startVoice, stopVoice, resetVoice, startDebate, abortDebate, isMenuOpen, isPaused, isVoiceEnabled, handleStop, handleIntroduction, setIsCreditsOpen]);
 
   // Handle pause/play effect
   useEffect(() => {
@@ -156,6 +145,9 @@ function App() {
 
   return (
     <main className={styles.appContainer} aria-busy={!!thinkingName || isDebating}>
+      {isBooting && <BootScreen onDone={() => setIsBooting(false)} />}
+      {isCreditsOpen && <Credits onClose={() => setIsCreditsOpen(false)} />}
+
       {/* Menu overlay */}
       {isMenuOpen && (
         <Menu
@@ -174,6 +166,8 @@ function App() {
           onButtonsToggle={(visible: boolean) => setIsButtonsVisible(visible)}
           onInputModeToggle={(minimal: boolean) => setIsInputMinimal(minimal)}
           onIntroduction={handleIntroduction}
+          onCredits={() => setIsCreditsOpen(true)}
+          onClose={() => setIsMenuOpen(false)}
         />
       )}
       <InputSection
@@ -194,6 +188,7 @@ function App() {
         typingPhilosopher={currentPhilosopher}
         thinkingName={thinkingName}
         currentPhilosopher={currentPhilosopher}
+        isPaused={isPaused}
       />
 
       {error && (
@@ -209,7 +204,10 @@ function App() {
       )}
 
       {isListening && !submittedQuestion && (
-        <div className={styles.userQuestion} style={{ display: 'flex', justifyContent: 'center' }}>
+        <div className={styles.userQuestion} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+          {!transcript.trim() && (
+            <span className={styles.recordingIndicator} aria-hidden="true">● RECORDING_QUESTION</span>
+          )}
           <output className={styles.liveTranscript} aria-live="polite">
             {transcript.trim() ? transcript : '.'.repeat(dotCount)}
           </output>
@@ -219,8 +217,6 @@ function App() {
       <DiscussionLog
         finishedLines={finishedLines}
         currentLine={currentLine}
-        isListening={isListening}
-        liveTranscript={transcript}
         isFastForwarding={isFastForwarding}
         isPaused={isPaused}
       />

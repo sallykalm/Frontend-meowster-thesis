@@ -1,0 +1,64 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  color: #f0f0f0;
+  pointer-events: none;
+  transition: opacity 0.8s ease;
+}
+
+.overlay.fadeOut {
+  opacity: 0;
+}
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+  width: 480px;
+  max-width: 90vw;
+}
+
+.line {
+  font-size: 0.95rem;
+  letter-spacing: 1px;
+  opacity: 0;
+  animation: appear 0.1s forwards;
+}
+
+.line.dim {
+  color: #666;
+}
+
+.line.bright {
+  color: #fff;
+  font-weight: bold;
+}
+
+.line.accent {
+  color: var(--color-accent-pink);
+  font-weight: bold;
+  letter-spacing: 3px;
+}
+
+.bar {
+  display: inline-block;
+  overflow: hidden;
+  width: 0;
+  white-space: nowrap;
+  animation: fillBar 1.2s steps(20, end) forwards;
+}
+
+@keyframes appear {
+  to { opacity: 1; }
+}
+
+@keyframes fillBar {
+  to { width: 20ch; }
+}
