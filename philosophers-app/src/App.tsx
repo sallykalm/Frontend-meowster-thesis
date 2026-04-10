@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import DiscussionLog from './components/DiscussionLog';
 import ImageGrid from './components/ImageGrid';
 import InputSection from './components/InputSection';
@@ -45,7 +45,12 @@ function App() {
     }
   }
 
-  function handleStop() {
+  function handleIntroduction() {
+    // Placeholder for future introduction functionality
+    console.log('Introduction button clicked');
+  }
+
+  const handleStop = useCallback(() => {
     if (isDebating) {
       abortDebate();
     }
@@ -53,12 +58,7 @@ function App() {
     setIsFastForwarding(false);
     setUserQuestion('');
     clearQuestion().catch(console.error);
-  }
-
-  function handleIntroduction() {
-    // Placeholder for future introduction functionality
-    console.log('Introduction button clicked');
-  }
+  }, [isDebating, abortDebate]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
