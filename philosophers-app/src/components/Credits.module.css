@@ -49,25 +49,25 @@
   font-size: 0.85rem;
 }
 
-/* Two-column layout: credits list + QR code */
-.columns {
-  display: flex;
-  gap: 40px;
-  align-items: flex-start;
-}
-
 .creditsList {
   display: flex;
   flex-direction: column;
   gap: 1em;
-  flex: 1;
+}
+
+/* Bottom row: philosophers left, QR right */
+.bottomRow {
+  display: flex;
+  gap: 40px;
+  align-items: flex-start;
+  justify-content: space-between;
 }
 
 .qrBlock {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.6em;
+  gap: 0.8em;
   flex-shrink: 0;
 }
 
@@ -79,10 +79,10 @@
 }
 
 .qrImage {
-  width: 160px;
-  height: 160px;
+  width: 200px;
+  height: 200px;
   image-rendering: pixelated;
-  margin-top: 0.6em;
+  margin-top: 0.8em;
 }
 
 /* Credits entries */
@@ -134,9 +134,9 @@
   letter-spacing: 2px;
 }
 
-/* Narrow screens: stack columns */
+/* Narrow screens: stack bottom row */
 @media (max-width: 600px) {
-  .columns {
+  .bottomRow {
     flex-direction: column;
   }
 

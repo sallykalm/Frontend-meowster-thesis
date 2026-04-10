@@ -23,44 +23,52 @@ const Credits = ({ onClose }: CreditsProps) => {
 
         <div className={styles.divider}>{'─'.repeat(48)}</div>
 
-        <div className={styles.columns}>
-          <div className={styles.creditsList}>
+        <div className={styles.creditsList}>
+          <div className={styles.entry}>
+            <div className={styles.name}>Monika Fleischmann &amp; Wolfgang Strauss</div>
+            <span>Artistic Direction &amp; Concept</span>
+          </div>
 
-            <div className={styles.entry}>
-              <div className={styles.name}>Monika Fleischmann &amp; Wolfgang Strauss</div>
-              <span>Artistic Direction &amp; Concept</span>
-            </div>
+          <div className={styles.entry}>
+            <div className={styles.name}>Jasmina Marić, PhD</div>
+            <span>Project lead &amp; Supervision, Chalmers University</span>
+          </div>
 
-            <div className={styles.entry}>
-              <div className={styles.name}>Jasmina Marić, PhD</div>
-              <span>Project lead &amp; Supervision, Chalmers University</span>
-            </div>
+          <div className={styles.entry}>
+            <div className={styles.name}>Max Hagman &amp; Sally Kalm</div>
+            <span>UI/UX &amp; Front-End Development,<br />Chalmers Master's thesis students</span>
+          </div>
 
-            <div className={styles.entry}>
-              <div className={styles.name}>Max Hagman &amp; Sally Kalm</div>
-              <span>UI/UX &amp; Front-End Development,<br />Chalmers Master's thesis students</span>
-            </div>
+          <div className={styles.entry}>
+            <div className={styles.name}>Rasti Tengman</div>
+            <span>Back-End Development,<br />Chalmers Master's thesis student</span>
+          </div>
 
-            <div className={styles.entry}>
-              <div className={styles.name}>Rasti Tengman</div>
-              <span>Back-End Development,<br />Chalmers Master's thesis student</span>
-            </div>
+          <div className={styles.entry}>
+            <div className={styles.name}>Sebastian Norlin</div>
+            <span>Back-End Development &amp; Supervision, Scionova</span>
+          </div>
 
-            <div className={styles.entry}>
-              <div className={styles.name}>Sebastian Norlin</div>
-              <span>Back-End Development &amp; Supervision, Scionova</span>
-            </div>
+          <div className={styles.entry}>
+            <div className={styles.name}>Fredrik Johansson</div>
+            <span>Value Coordinator, Scionova</span>
+          </div>
 
-            <div className={styles.entry}>
-              <div className={styles.name}>Fredrik Johansson</div>
-              <span>Value Coordinator, Scionova</span>
-            </div>
+          <div className={styles.entry}>
+            <div className={styles.name}>Sahil Lakhe</div>
+            <span>Back-End Development, Scionova</span>
+          </div>
+        </div>
 
-            <div className={styles.entry}>
-              <div className={styles.name}>Sahil Lakhe</div>
-              <span>Back-End Development, Scionova</span>
-            </div>
+        <div className={styles.divider}>{'─'.repeat(48)}</div>
 
+        <div className={styles.bottomRow}>
+          <div className={styles.section}>
+            <div className={styles.sectionTitle}>Philosophers</div>
+            <div className={styles.entry}>Vilém Flusser <span>(1920 – 1991)</span></div>
+            <div className={styles.entry}>Joseph Weizenbaum <span>(1923 – 2008)</span></div>
+            <div className={styles.entry}>Paul Virilio <span>(1932 – 2018)</span></div>
+            <div className={styles.entry}>Peter Weibel <span>(1944 – 2023)</span></div>
           </div>
 
           <div className={styles.qrBlock}>
@@ -71,16 +79,6 @@ const Credits = ({ onClose }: CreditsProps) => {
               alt="Survey QR code"
             />
           </div>
-        </div>
-
-        <div className={styles.divider}>{'─'.repeat(48)}</div>
-
-        <div className={styles.section}>
-          <div className={styles.sectionTitle}>Philosophers</div>
-          <div className={styles.entry}>Vilém Flusser <span>(1920 – 1991)</span></div>
-          <div className={styles.entry}>Joseph Weizenbaum <span>(1923 – 2008)</span></div>
-          <div className={styles.entry}>Paul Virilio <span>(1932 – 2018)</span></div>
-          <div className={styles.entry}>Peter Weibel <span>(1944 – 2023)</span></div>
         </div>
 
         <div className={styles.divider}>{'─'.repeat(48)}</div>
