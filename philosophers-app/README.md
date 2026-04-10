@@ -1,73 +1,92 @@
-# React + TypeScript + Vite
+# Philosophers App
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A real-time AI debate interface where four digital philosophers — Flusser-AI, Weizenbaum-AI, Virilio-AI, and Weibel-AI — discuss questions posed by the user.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## What it does
 
-## React Compiler
+1. The user submits a question (by typing and pressing Enter, or by holding Space to speak).
+2. The backend routes the question to each philosopher's AI model in sequence.
+3. Responses are streamed back one at a time and displayed with a typewriter animation.
+4. Audio narration plays alongside each response (when available).
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the ESLint configuration
+## Running locally
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### Prerequisites
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+- Node.js 22+
+- The philosophers backend running on `http://localhost:15567`
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### Install and start
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The app will be available at `http://localhost:5173`. The Vite dev server proxies `/api` and `/audio` to the backend, so no CORS configuration is needed in development.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+---
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Environment variables
+
+| Variable        | Default     | Description          |
+|-----------------|-------------|----------------------|
+| `VITE_API_HOST` | `localhost` | Backend hostname     |
+| `VITE_API_PORT` | `15567`     | Backend port         |
+
+Copy `.env.example` to `.env` to override defaults. For production Docker builds, pass them as build args:
+
+```bash
+docker build \
+  --build-arg VITE_API_HOST=api.example.com \
+  --build-arg VITE_API_PORT=443 \
+  -t philosophers-app .
 ```
+
+---
+
+## Keyboard shortcuts
+
+| Key     | Action                                         |
+|---------|------------------------------------------------|
+| `Space` | Hold to record voice input; release to submit  |
+| `Space` | While debate is running: abort and reset       |
+| `1`–`4` | Switch philosopher image set                   |
+| `Enter` | Submit typed question                          |
+
+---
+
+## Image sets
+
+Press `1`–`4` to cycle through four visual styles for the philosopher portraits. Sets 1, 2, and 4 include animated GIFs that activate when a philosopher is speaking; set 3 is PNG-only.
+
+---
+
+## Project structure
+
+```
+src/
+  components/     UI components, each with a co-located .module.css
+  hooks/          useDebate, useWebSpeech, useDotAnimation
+  __tests__/      Unit and smoke tests (Vitest + Testing Library)
+  api.ts          All backend fetch calls
+  constants.ts    Named constants and environment configuration
+  types.ts        Shared TypeScript interfaces
+  App.tsx         Root component and keyboard event wiring
+  App.css         Global CSS reset and design tokens (:root variables)
+```
+
+---
+
+## Available scripts
+
+| Script          | Description                      |
+|-----------------|----------------------------------|
+| `npm run dev`   | Start dev server with HMR        |
+| `npm run build` | Production build (type-check + bundle) |
+| `npm run lint`  | ESLint with type-aware rules     |
+| `npm test`      | Run Vitest unit and smoke tests  |

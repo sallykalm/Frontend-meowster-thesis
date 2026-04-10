@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { TYPEWRITER_SPEED_MS } from '../constants';
 
 interface TypewriterProps {
   text: string;
@@ -6,12 +7,12 @@ interface TypewriterProps {
   onComplete?: () => void;
 }
 
-const Typewriter = ({ text, speed = 125, onComplete }: TypewriterProps) => {
-  const [displayedText, setDisplayedText] = useState("");
+const Typewriter = ({ text, speed = TYPEWRITER_SPEED_MS, onComplete }: TypewriterProps) => {
+  const [displayedText, setDisplayedText] = useState('');
   const indexRef = useRef(0);
 
   useEffect(() => {
-    setDisplayedText("");
+    setDisplayedText('');
     indexRef.current = 0;
 
     const timer = setInterval(() => {
@@ -25,9 +26,7 @@ const Typewriter = ({ text, speed = 125, onComplete }: TypewriterProps) => {
       }
     }, speed);
 
-    return () => {
-      clearInterval(timer);
-    };
+    return () => clearInterval(timer);
   }, [text, speed]);
 
   return <span>{displayedText}</span>;

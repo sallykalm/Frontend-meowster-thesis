@@ -1,0 +1,75 @@
+.inputSection {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 50px;
+}
+
+.input {
+  width: 60%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #555;
+  color: #f0f0f0;
+  padding: 10px;
+  margin-right: 10px;
+  text-align: center;
+  font-family: inherit;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.5s ease, color 0.5s ease;
+}
+
+.input:focus {
+  border-bottom: 1px solid #aaa;
+  color: #fff;
+}
+
+.input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.button {
+  background: transparent;
+  border: 1px solid #555;
+  color: #888;
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: color 0.3s, border-color 0.3s;
+  letter-spacing: 1px;
+}
+
+.button:hover:not(:disabled) {
+  color: #f0f0f0;
+  border-color: #aaa;
+}
+
+.button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.voiceButton {
+  composes: button;
+  border-color: #ff69b4;
+  color: #ff69b4;
+}
+
+.voiceButton:hover:not(:disabled) {
+  color: #fff;
+  border-color: #ff69b4;
+}
+
+.voiceButtonActive {
+  composes: voiceButton;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
