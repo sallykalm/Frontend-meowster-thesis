@@ -20,6 +20,7 @@ const Typewriter = ({
   const indexRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isCompleteRef = useRef(false);
+  const shouldResetRef = useRef(false);
 
   // Refs so interval callbacks always see latest values without being deps
   const isPausedRef = useRef(isPaused);
@@ -39,24 +40,18 @@ const Typewriter = ({
     }
   }
 
-  /**
-   * Start the typing interval from indexRef.current.
-   * Pass resetDisplay=true (only on text change) to clear the display on the
-   * first tick instead of in the effect body, satisfying the linter rule that
-   * prohibits synchronous setState calls inside useEffect.
-   */
-  function startInterval(resetDisplay = false) {
+  function startInterval() {
     if (timerRef.current) return;
-    let firstTick = resetDisplay;
     timerRef.current = setInterval(() => {
-      if (firstTick) {
-        setDisplayedText('');
-        firstTick = false;
-        return; // let the clear render before typing begins
-      }
       const t = textRef.current;
       if (indexRef.current < t.length) {
-        setDisplayedText((prev) => prev + t.charAt(indexRef.current));
+        const ch = t.charAt(indexRef.current);
+        if (shouldResetRef.current) {
+          setDisplayedText(ch);
+          shouldResetRef.current = false;
+        } else {
+          setDisplayedText((prev) => prev + ch);
+        }
         indexRef.current += 1;
       } else {
         stopInterval();
@@ -74,7 +69,8 @@ const Typewriter = ({
     stopInterval();
     indexRef.current = 0;
     isCompleteRef.current = false;
-    if (!isPausedRef.current) startInterval(true);
+    shouldResetRef.current = true;
+    if (!isPausedRef.current) startInterval();
     return () => stopInterval();
   }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
 
