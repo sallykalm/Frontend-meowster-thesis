@@ -1,5 +1,5 @@
 import Typewriter from './Typewriter';
-import { COLORS, PHILOSOPHER_CONFIG, MAX_VISIBLE_LINES, LINE_OPACITIES } from '../constants';
+import { COLORS, PHILOSOPHER_CONFIG, MAX_VISIBLE_LINES, LINE_OPACITIES, TYPEWRITER_SPEED_BY_PHILOSOPHER, TYPEWRITER_SPEED_MS } from '../constants';
 import type { ChatMessage } from '../types';
 import styles from './DiscussionLog.module.css';
 
@@ -15,6 +15,7 @@ interface PhilosopherBlock {
   displayName: string;
   nameColor: string;
   lineIndices: number[];
+  turnType?: string | null;
 }
 
 const DiscussionLog = ({
@@ -40,6 +41,7 @@ const DiscussionLog = ({
         displayName,
         nameColor,
         lineIndices: [idx],
+        turnType: line.turnType as string | null | undefined,
       });
     }
   });
@@ -59,7 +61,13 @@ const DiscussionLog = ({
             style={{ marginTop: blockIdx !== 0 ? '0.5em' : '0' }}
           >
             <div className={styles.nameLabel} style={{ color: block.nameColor }}>
+              {block.turnType === 'interruption' && (
+                <span className={styles.interruptTag}>—</span>
+              )}
               {block.displayName}
+              {block.turnType === 'interrupted_return' && (
+                <span className={styles.resumeTag}> ↩</span>
+              )}
             </div>
 
             <div className={styles.textLinesBlock}>
@@ -73,9 +81,11 @@ const DiscussionLog = ({
                     {line.isNew && isCurrent ? (
                       <Typewriter
                         text={line.text}
+                        speed={TYPEWRITER_SPEED_BY_PHILOSOPHER[line.philosopher] ?? TYPEWRITER_SPEED_MS}
                         onComplete={line.onComplete}
                         isFastForwarding={isFastForwarding}
                         isPaused={isPaused}
+                        interrupted={line.interrupted === true}
                       />
                     ) : (
                       line.text

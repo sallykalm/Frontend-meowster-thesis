@@ -28,8 +28,20 @@ export const MAX_VISIBLE_LINES = 4;
 export const LINE_OPACITIES = [1, 1, 0.6, 0.3]; // newest → oldest
 
 // Typewriter
-export const TYPEWRITER_SPEED_MS = 40;
+export const TYPEWRITER_SPEED_MS = 90;
+
+export const TYPEWRITER_SPEED_BY_PHILOSOPHER: Record<string, number> = {
+  Flusser:     115,
+  Virilio:     85,
+  Weizenbaum:  80,
+  Weibel:      75,
+  Moderator:   90,
+};
 
 // Speech recognition
 export const SPEECH_LANGUAGE = 'en-US';
+
+// Philosopher names used for audience question targeting chips
+export const PHILOSOPHER_NAMES = ['Flusser', 'Virilio', 'Weizenbaum', 'Weibel'] as const;
+export type PhilosopherName = typeof PHILOSOPHER_NAMES[number];
 

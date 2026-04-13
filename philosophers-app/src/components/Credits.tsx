@@ -41,7 +41,7 @@ const Credits = ({ onClose }: CreditsProps) => {
 
           <div className={styles.entry}>
             <div className={styles.name}>Rasti Tengman</div>
-            <span>Back-End Development,<br />Chalmers Master's thesis student</span>
+            <span>Back/Front-End Development,<br />Chalmers Master's thesis student</span>
           </div>
 
           <div className={styles.entry}>

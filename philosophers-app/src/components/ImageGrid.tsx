@@ -18,6 +18,7 @@ interface ImageGridProps {
   onImageSetChange: (set: number) => void;
   typingPhilosopher: string | null;
   thinkingName: string | null;
+  interruptingName: string | null;
   currentPhilosopher: string | null;
   isPaused?: boolean;
 }
@@ -30,10 +31,11 @@ const ImageGrid = ({
   onImageSetChange,
   typingPhilosopher,
   thinkingName,
+  interruptingName,
   currentPhilosopher,
   isPaused = false,
 }: ImageGridProps) => {
-  const dotCount = useDotAnimation(!!thinkingName);
+  const dotCount = useDotAnimation(!!(thinkingName ?? interruptingName));
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -57,26 +59,27 @@ const ImageGrid = ({
         const extension = isGif ? 'gif' : 'png';
         const imgSrc = `/images/${config.filePrefix}${imageSet}.${extension}`;
         const isThinking = thinkingName === baseName && currentPhilosopher !== baseName;
+        const isInterrupting = interruptingName === baseName && currentPhilosopher !== baseName;
 
         return (
           <div className={styles.philosopherColumn} key={baseName}>
             <div
               className={styles.philosopherFrame}
               style={{ borderColor: COLORS[config.displayName] }}
-              aria-busy={isThinking}
+              aria-busy={isThinking || isInterrupting}
             >
               <img src={imgSrc} alt={config.displayName} />
             </div>
             <div className={styles.philosopherLabel} style={{ color: COLORS[config.displayName] }}>
               {config.displayName.toUpperCase()}
             </div>
-            {isThinking ? (
+            {(isThinking || isInterrupting) ? (
               <div
                 className={styles.philosopherThinking}
                 style={{ color: COLORS[config.displayName] }}
                 aria-live="polite"
               >
-                IS THINKING{'.'.repeat(dotCount)}
+                {isInterrupting ? 'IS INTERRUPTING' : 'IS THINKING'}{'.'.repeat(dotCount)}
               </div>
             ) : (
               <div className={styles.philosopherThinking} aria-hidden="true" style={{ visibility: 'hidden' }} />

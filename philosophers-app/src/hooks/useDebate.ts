@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { submitQuestion, getNextResponse, clearQuestion } from '../api';
+import { submitQuestion, getNextResponse, clearQuestion, submitAudienceQuestion, fetchIntroductions } from '../api';
 import type { ApiResponse } from '../api';
 import { BASE_URL, MAX_LINE_LENGTH, THINKING_DELAY_MS, FINISHED_LINES_KEPT } from '../constants';
 import type { ChatMessage } from '../types';
@@ -24,17 +24,26 @@ function playAudio(url: string): Promise<void> {
   const audioSrc = BASE_URL.startsWith('http')
     ? `${new URL(BASE_URL).origin}${url}`
     : url;
+
   const audio = new Audio(audioSrc);
+
   return new Promise<void>((res) => {
     audio.addEventListener('ended', () => res(), { once: true });
     audio.addEventListener('error', (e) => {
       console.error('Audio playback failed:', e);
       res();
     }, { once: true });
+
     audio.play().catch((e: unknown) => {
       console.error('Audio play() rejected:', e);
       res();
     });
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
   });
 }
 
@@ -43,11 +52,18 @@ interface UseDebateReturn {
   currentLine: ChatMessage | null;
   currentPhilosopher: string | null;
   thinkingName: string | null;
+  interruptingName: string | null;
   submittedQuestion: string;
+  isAudienceQuestion: boolean;
+  questionRevision: number;
   isDebating: boolean;
   error: string | null;
+  awaitingAudienceInput: boolean;
   startDebate: (question: string, isVoiceEnabled?: boolean) => Promise<void>;
   abortDebate: () => void;
+  resolveQuestionTypewriter: () => void;
+  handleAudienceQuestion: (question: string, addressedTo: string[], isFollowup: boolean) => Promise<void>;
+  runIntroduction: (isVoiceEnabled: boolean) => Promise<void>;
 }
 
 export function useDebate(): UseDebateReturn {
@@ -55,47 +71,136 @@ export function useDebate(): UseDebateReturn {
   const [currentLine, setCurrentLine] = useState<ChatMessage | null>(null);
   const [currentPhilosopher, setCurrentPhilosopher] = useState<string | null>(null);
   const [thinkingName, setThinkingName] = useState<string | null>(null);
+  const [interruptingName, setInterruptingName] = useState<string | null>(null);
   const [submittedQuestion, setSubmittedQuestion] = useState('');
+  const [isAudienceQuestion, setIsAudienceQuestion] = useState(false);
+  const [questionRevision, setQuestionRevision] = useState(0);
   const [isDebating, setIsDebating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [awaitingAudienceInput, setAwaitingAudienceInput] = useState(false);
+
   const abortRef = useRef<AbortController | null>(null);
+  const questionTypewriterResolveRef = useRef<(() => void) | null>(null);
+  const awaitingAudienceInputRef = useRef(false);
+
+  // Prefetch: holds the promise for the next response, started during the last
+  // line of a philosopher's turn so the typewriter can be interrupted early.
+  const prefetchPromiseRef = useRef<Promise<ApiResponse | null> | null>(null);
+
+  function setAudienceAwaiting(value: boolean): void {
+    awaitingAudienceInputRef.current = value;
+    setAwaitingAudienceInput(value);
+  }
+
+  function resolveQuestionTypewriter(): void {
+    questionTypewriterResolveRef.current?.();
+    questionTypewriterResolveRef.current = null;
+  }
+
+  async function waitForAudienceQuestion(signal: AbortSignal): Promise<void> {
+    while (!signal.aborted && awaitingAudienceInputRef.current) {
+      await sleep(100);
+    }
+  }
 
   async function processPhilosopherTurn(
     data: ApiResponse,
     lastPhilosopher: string | null,
     signal: AbortSignal,
   ): Promise<void> {
-    // Show thinking delay when the speaking philosopher changes
-    if (lastPhilosopher && data.philosopher !== lastPhilosopher) {
-      setCurrentPhilosopher(null);
-      setThinkingName(data.philosopher);
-      await new Promise<void>((res) => {
-        const t = setTimeout(res, THINKING_DELAY_MS);
-        signal.addEventListener('abort', () => { clearTimeout(t); res(); }, { once: true });
-      });
-      if (signal.aborted) return;
-      setThinkingName(null);
+    // System sentinel: the session is paused waiting for an audience question.
+    if (data.turn_type === 'awaiting_audience_input') {
+      setAudienceAwaiting(true);
+      return;
     }
 
-    setThinkingName(data.philosopher);
+    // Clear the audience flag for all non-sentinel turns so the UI hides again.
+    setAudienceAwaiting(false);
+
+    // Moderator next_question: update the question banner and wait for typewriter to finish
+    if (data.turn_type === 'next_question') {
+      setSubmittedQuestion(data.text);
+      setQuestionRevision((r) => r + 1);
+      await new Promise<void>((resolve) => {
+        questionTypewriterResolveRef.current = resolve;
+        signal.addEventListener('abort', () => resolve(), { once: true });
+      });
+      return;
+    }
+
+    // Thinking/interrupting delay when the speaking philosopher changes
+    if (
+      lastPhilosopher &&
+      data.philosopher !== lastPhilosopher &&
+      data.philosopher !== 'SYSTEM'
+    ) {
+      setCurrentPhilosopher(null);
+
+      if (data.turn_type === 'interruption') {
+        // Interruptions feel immediate, very short delay, different label
+        setInterruptingName(data.philosopher);
+        await new Promise<void>((res) => {
+          const t = setTimeout(res, 400);
+          signal.addEventListener('abort', () => {
+            clearTimeout(t);
+            res();
+          }, { once: true });
+        });
+        if (signal.aborted) return;
+        setInterruptingName(null);
+      } else {
+        setThinkingName(data.philosopher);
+        await new Promise<void>((res) => {
+          const t = setTimeout(res, THINKING_DELAY_MS);
+          signal.addEventListener('abort', () => {
+            clearTimeout(t);
+            res();
+          }, { once: true });
+        });
+        if (signal.aborted) return;
+        setThinkingName(null);
+      }
+    }
+
+    if (data.philosopher !== 'SYSTEM') {
+      setThinkingName(data.philosopher);
+    }
 
     const audioPromise = data.audio_url ? playAudio(data.audio_url) : Promise.resolve();
 
     // Trigger GIF only when text is about to render, not during thinking delay
-    setCurrentPhilosopher(data.philosopher);
-    for (const line of formatLines(data.text)) {
+    setCurrentPhilosopher(data.philosopher === 'SYSTEM' ? null : data.philosopher);
+
+    const lines = formatLines(data.text);
+    for (let i = 0; i < lines.length; i += 1) {
       if (signal.aborted) break;
+
+      const line = lines[i];
+      const isLastLine = i === lines.length - 1;
+
+      // Shared mutable state between onComplete and the prefetch callback.
+      // When interrupted, the prefetch sets storedText to the truncated version
+      // BEFORE onComplete fires, so finishedLines gets the right text.
+      const lineState = { storedText: line };
+
       await new Promise<void>((resolve) => {
         setCurrentLine({
           id: Date.now() + Math.random(),
           philosopher: data.philosopher,
           text: line,
           isNew: true,
-          onComplete: () => {
+          turnType: data.turn_type,
+          onComplete: (finalText?: string) => {
             setFinishedLines((prev) => {
               const updated = [
                 ...prev,
-                { id: Date.now() + Math.random(), philosopher: data.philosopher, text: line, isNew: false },
+                {
+                  id: Date.now() + Math.random(),
+                  philosopher: data.philosopher,
+                  text: finalText ?? lineState.storedText,
+                  isNew: false,
+                  turnType: data.turn_type,
+                },
               ];
               return updated.slice(-FINISHED_LINES_KEPT);
             });
@@ -103,38 +208,103 @@ export function useDebate(): UseDebateReturn {
             resolve();
           },
         });
+
+        // On the last line: prefetch the next response so we can interrupt
+        // the typewriter mid-stream if an interruption is coming.
+        if (isLastLine && prefetchPromiseRef.current === null) {
+          prefetchPromiseRef.current = getNextResponse().then((nextData) => {
+            if (
+              nextData?.turn_type === 'interruption' &&
+              nextData.interrupted_speaker === data.philosopher
+            ) {
+              setCurrentLine((prev) => (prev ? { ...prev, interrupted: true } : prev));
+            }
+            return nextData;
+          });
+        }
       });
     }
 
     await audioPromise;
   }
 
-  async function runDebateLoop(question: string, signal: AbortSignal, isVoiceEnabled: boolean = true): Promise<void> {
+  async function runDebateLoop(
+    question: string,
+    signal: AbortSignal,
+    isVoiceEnabled: boolean = true,
+  ): Promise<void> {
     // Clear any previous session state before starting a new debate
     await clearQuestion();
-    
+
     const submitted = await submitQuestion(question, isVoiceEnabled);
     if (!submitted) {
-      setError('Failed to submit question — is the backend running?');
+      setError('Failed to submit question. Is the backend running?');
       return;
     }
 
     let lastPhilosopher: string | null = null;
 
     while (!signal.aborted) {
-      const data = await getNextResponse();
-      if (!data) break;
+      // Pause locally while waiting for a live audience question.
+      // This keeps the loop alive instead of letting it die on null / timeout.
+      if (awaitingAudienceInputRef.current) {
+        await waitForAudienceQuestion(signal);
+        continue;
+      }
+
+      // Use the prefetched response if the last turn already fetched it.
+      let data: ApiResponse | null;
+      if (prefetchPromiseRef.current !== null) {
+        data = await prefetchPromiseRef.current;
+        prefetchPromiseRef.current = null;
+      } else {
+        data = await getNextResponse();
+      }
+
+      // If we are currently paused for audience input, do not break the loop.
+      // Just wait until the audience question has been submitted.
+      if (!data) {
+        if (awaitingAudienceInputRef.current) {
+          await waitForAudienceQuestion(signal);
+          continue;
+        }
+        break;
+      }
 
       await processPhilosopherTurn(data, lastPhilosopher, signal);
-      if (!signal.aborted) setThinkingName(null);
-      lastPhilosopher = data.philosopher;
+
+      if (!signal.aborted) {
+        setThinkingName(null);
+        setInterruptingName(null);
+      }
+
+      if (data.philosopher !== 'SYSTEM') {
+        lastPhilosopher = data.philosopher;
+      }
 
       if (data.is_last) break;
     }
-    // Explicitly clear GIF/thinking state as soon as the loop exits, before
-    // the finally block in startDebate, so the GIF stops immediately.
+
     setCurrentPhilosopher(null);
     setThinkingName(null);
+    setInterruptingName(null);
+  }
+
+  async function handleAudienceQuestion(
+    question: string,
+    addressedTo: string[],
+    isFollowup: boolean,
+  ): Promise<void> {
+    const accepted = await submitAudienceQuestion(question, addressedTo, isFollowup);
+
+    if (accepted) {
+      setError(null);
+      setIsAudienceQuestion(true);
+      setSubmittedQuestion(question);
+      setAudienceAwaiting(false);
+    } else {
+      setError('Failed to submit audience question. Session may no longer be waiting.');
+    }
   }
 
   async function startDebate(question: string, isVoiceEnabled: boolean = true): Promise<void> {
@@ -144,7 +314,11 @@ export function useDebate(): UseDebateReturn {
     setCurrentLine(null);
     setCurrentPhilosopher(null);
     setThinkingName(null);
+    setInterruptingName(null);
     setSubmittedQuestion(question);
+    setIsAudienceQuestion(false);
+    setAudienceAwaiting(false);
+    prefetchPromiseRef.current = null;
 
     abortRef.current = new AbortController();
     const { signal } = abortRef.current;
@@ -161,7 +335,9 @@ export function useDebate(): UseDebateReturn {
         setSubmittedQuestion('');
       }
       setThinkingName(null);
+      setInterruptingName(null);
       setCurrentPhilosopher(null);
+      setAudienceAwaiting(false);
       setIsDebating(false);
     }
   }
@@ -172,15 +348,79 @@ export function useDebate(): UseDebateReturn {
     }
   }
 
+  async function runIntroduction(isVoiceEnabled: boolean): Promise<void> {
+    if (isDebating) return;
+
+    const introductions = await fetchIntroductions();
+    if (!introductions.length) return;
+
+    setIsDebating(true);
+    setFinishedLines([]);
+    setCurrentLine(null);
+    setCurrentPhilosopher(null);
+    setThinkingName(null);
+
+    for (const intro of introductions) {
+      // Brief thinking delay before each philosopher
+      setThinkingName(intro.philosopher);
+      await sleep(THINKING_DELAY_MS);
+      setThinkingName(null);
+      setCurrentPhilosopher(intro.philosopher);
+
+      // Start audio in parallel with typewriter
+      const audioPromise =
+        isVoiceEnabled && intro.audio_url ? playAudio(intro.audio_url) : Promise.resolve();
+
+      await new Promise<void>((resolve) => {
+        setCurrentLine({
+          id: Date.now() + Math.random(),
+          philosopher: intro.philosopher,
+          text: intro.text,
+          isNew: true,
+          turnType: 'introduction',
+          onComplete: () => {
+            setFinishedLines((prev) =>
+              [
+                ...prev,
+                {
+                  id: Date.now() + Math.random(),
+                  philosopher: intro.philosopher,
+                  text: intro.text,
+                  isNew: false,
+                  turnType: 'introduction',
+                },
+              ].slice(-FINISHED_LINES_KEPT),
+            );
+            setCurrentLine(null);
+            resolve();
+          },
+        });
+      });
+
+      await audioPromise;
+    }
+
+    setCurrentPhilosopher(null);
+    setThinkingName(null);
+    setIsDebating(false);
+  }
+
   return {
     finishedLines,
     currentLine,
     currentPhilosopher,
     thinkingName,
+    interruptingName,
     submittedQuestion,
+    isAudienceQuestion,
+    questionRevision,
     isDebating,
     error,
+    awaitingAudienceInput,
     startDebate,
     abortDebate,
+    resolveQuestionTypewriter,
+    handleAudienceQuestion,
+    runIntroduction,
   };
 }

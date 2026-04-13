@@ -3,5 +3,7 @@ export interface ChatMessage {
   philosopher: string;
   text: string;
   isNew: boolean;
-  onComplete?: () => void;
+  turnType?: string | null;
+  onComplete?: (finalText?: string) => void;
+  interrupted?: boolean; // signals the active typewriter to stop mid-stream
 }

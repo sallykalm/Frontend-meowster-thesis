@@ -56,11 +56,26 @@
   color: #fff;
   opacity: 1;
   overflow-wrap: break-word;
-  white-space: nowrap;
+  white-space: normal;
   text-align: left;
   font-family: var(--font-mono);
   min-height: 1.5em;
   line-height: 1.5;
+}
+
+.interruptTag {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: normal;
+  opacity: 0.6;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.1em;
+}
+
+.resumeTag {
+  font-size: 0.75rem;
+  font-weight: normal;
+  opacity: 0.6;
 }
 
 /* Tablet: collapse name label into flow */
