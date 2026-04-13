@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { forwardRef, useImperativeHandle, useMemo, useState } from 'react';
 import { PHILOSOPHER_NAMES } from '../constants';
 import type { PhilosopherName } from '../constants';
 import { useWebSpeech } from '../hooks/useWebSpeech';
@@ -8,7 +8,11 @@ interface AudienceInputProps {
   onSubmit: (question: string, addressedTo: string[], isFollowup: boolean) => Promise<void>;
 }
 
-const AudienceInput = ({ onSubmit }: AudienceInputProps) => {
+export interface AudienceInputHandle {
+  toggleVoice: () => void;
+}
+
+const AudienceInput = forwardRef<AudienceInputHandle, AudienceInputProps>(function AudienceInput({ onSubmit }, ref) {
   const [question, setQuestion] = useState('');
   const [selected, setSelected] = useState<Set<PhilosopherName>>(new Set());
   const [submitting, setSubmitting] = useState(false);
@@ -49,6 +53,8 @@ const AudienceInput = ({ onSubmit }: AudienceInputProps) => {
       start();
     }
   }
+
+  useImperativeHandle(ref, () => ({ toggleVoice: handleVoiceToggle }));
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -129,6 +135,6 @@ const AudienceInput = ({ onSubmit }: AudienceInputProps) => {
       </form>
     </div>
   );
-};
+});
 
 export default AudienceInput;

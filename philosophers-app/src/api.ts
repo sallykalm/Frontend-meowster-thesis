@@ -26,6 +26,19 @@ const MAX_504_RETRIES = 6;
 const BACKOFF_INITIAL_MS = 500;
 const BACKOFF_MAX_MS = 5_000;
 
+/** Fetches server health including whether TTS is enabled. Returns null on error. */
+export async function fetchHealth(): Promise<{ status: string; llm: boolean; tts: boolean } | null> {
+  try {
+    const response = await fetch(`${BASE_URL}health`, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    return await response.json() as { status: string; llm: boolean; tts: boolean };
+  } catch {
+    return null;
+  }
+}
+
 /** Fetches the list of available philosopher names. Returns null on network error or non-200. */
 export async function fetchPhilosophers(): Promise<string[] | null> {
   try {

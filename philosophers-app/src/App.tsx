@@ -5,12 +5,12 @@ import DiscussionLog from './components/DiscussionLog';
 import Typewriter from './components/Typewriter';
 import ImageGrid from './components/ImageGrid';
 import InputSection from './components/InputSection';
-import AudienceInput from './components/AudienceInput';
+import AudienceInput, { type AudienceInputHandle } from './components/AudienceInput';
 import Menu from './components/Menu';
 import { useWebSpeech } from './hooks/useWebSpeech';
 import { useDotAnimation } from './hooks/useDotAnimation';
 import { useDebate } from './hooks/useDebate';
-import { clearQuestion, fetchDebateQuestions } from './api';
+import { clearQuestion, fetchDebateQuestions, fetchHealth } from './api';
 // import { PORT } from './constants';
 import styles from './App.module.css';
 import './App.css';
@@ -27,14 +27,20 @@ function App() {
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
   const [isButtonsVisible, setIsButtonsVisible] = useState(false);
   const [isInputMinimal, setIsInputMinimal] = useState(true);
+  const [isTtsEnabled, setIsTtsEnabled] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audienceInputRef = useRef<AudienceInputHandle>(null);
 
   useEffect(() => {
     const load = async (): Promise<void> => {
-      const questions = await fetchDebateQuestions();
+      const [questions, health] = await Promise.all([
+        fetchDebateQuestions(),
+        fetchHealth(),
+      ]);
       if (questions.length > 0) setDebateQuestions(questions);
+      if (health) setIsTtsEnabled(health.tts);
     };
     void load();
   }, []);
@@ -113,7 +119,13 @@ function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === 'INPUT') return;
-      if (isAudienceStageActive) return;
+      if (isAudienceStageActive) {
+        if (e.code === 'Space') {
+          e.preventDefault();
+          audienceInputRef.current?.toggleVoice();
+        }
+        return;
+      }
 
       if (e.code === 'Space') {
         if (isDebating) {
@@ -129,7 +141,7 @@ function App() {
       if (e.key.toUpperCase() === 'M') setIsMenuOpen(!isMenuOpen);
       if (e.key.toUpperCase() === 'P') setIsPaused(!isPaused);
       if (e.key.toUpperCase() === 'Q') handleStop();
-      if (e.key.toUpperCase() === 'F') setIsFastForwarding(true);
+      if (e.key.toUpperCase() === 'F' && !isTtsEnabled) setIsFastForwarding(true);
       if (e.key.toUpperCase() === 'V') setIsVoiceEnabled(!isVoiceEnabled);
       if (e.key.toUpperCase() === 'I') handleIntroduction();
       if (e.key.toUpperCase() === 'C') setIsCreditsOpen((o) => !o);
@@ -175,6 +187,7 @@ function App() {
     handleIntroduction,
     setIsCreditsOpen,
     isAudienceStageActive,
+    isTtsEnabled,
   ]);
 
   useEffect(() => {
@@ -212,7 +225,7 @@ function App() {
           isButtonsVisible={isButtonsVisible}
           onPausePlay={() => setIsPaused(!isPaused)}
           onStop={handleStop}
-          onFastForward={(isActive: boolean) => setIsFastForwarding(isActive)}
+          onFastForward={(isActive: boolean) => { if (!isTtsEnabled) setIsFastForwarding(isActive); }}
           onImageSetChange={setImageSet}
           onVoiceToggle={(enabled: boolean) => setIsVoiceEnabled(enabled)}
           onButtonsToggle={(visible: boolean) => setIsButtonsVisible(visible)}
@@ -259,7 +272,7 @@ function App() {
             margin: '20px 0 28px',
           }}
         >
-          <AudienceInput onSubmit={handleAudienceQuestion} />
+          <AudienceInput ref={audienceInputRef} onSubmit={handleAudienceQuestion} />
         </div>
       )}
 
