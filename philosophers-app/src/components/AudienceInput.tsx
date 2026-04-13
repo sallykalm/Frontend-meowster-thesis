@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { PHILOSOPHER_NAMES } from '../constants';
 import type { PhilosopherName } from '../constants';
 import { useWebSpeech } from '../hooks/useWebSpeech';
@@ -21,13 +21,9 @@ const AudienceInput = ({ onSubmit }: AudienceInputProps) => {
     reset,
   } = useWebSpeech();
 
-  const trimmedQuestion = useMemo(() => question.trim(), [question]);
-
-  useEffect(() => {
-    if (isListening) {
-      setQuestion(transcript);
-    }
-  }, [transcript, isListening]);
+  // While recording, show the live transcript; otherwise show the typed question.
+  const displayedQuestion = isListening ? transcript : question;
+  const trimmedQuestion = useMemo(() => displayedQuestion.trim(), [displayedQuestion]);
 
   function togglePhilosopher(name: PhilosopherName) {
     setSelected((prev) => {
@@ -46,16 +42,18 @@ const AudienceInput = ({ onSubmit }: AudienceInputProps) => {
 
     if (isListening) {
       stop();
+      // Commit whatever was transcribed so the user can edit it before submitting.
+      setQuestion(transcript);
     } else {
       reset();
       start();
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    const finalQuestion = question.trim();
+    const finalQuestion = displayedQuestion.trim();
     if (!finalQuestion || submitting) return;
 
     setSubmitting(true);
@@ -101,10 +99,10 @@ const AudienceInput = ({ onSubmit }: AudienceInputProps) => {
       <form className={styles.form} onSubmit={(e) => { void handleSubmit(e); }}>
         <input
           className={styles.input}
-          value={question}
+          value={displayedQuestion}
           onChange={(e) => { setQuestion(e.target.value); }}
           placeholder="[ type or record your question ]"
-          disabled={submitting}
+          disabled={submitting || isListening}
           autoFocus
           aria-label="Audience question text"
         />

@@ -41,7 +41,7 @@ const DiscussionLog = ({
         displayName,
         nameColor,
         lineIndices: [idx],
-        turnType: line.turnType as string | null | undefined,
+        turnType: line.turnType,
       });
     }
   });
