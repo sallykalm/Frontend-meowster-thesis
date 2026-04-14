@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { submitQuestion, getNextResponse, clearQuestion, submitAudienceQuestion, fetchIntroductions } from '../api';
-import type { ApiResponse } from '../api';
+import type { ApiResponse, Subtitle } from '../api';
 import { BASE_URL, MAX_LINE_LENGTH, THINKING_DELAY_MS, FINISHED_LINES_KEPT } from '../constants';
 import type { ChatMessage } from '../types';
 
@@ -18,26 +18,71 @@ export function formatLines(text: string, maxLen = MAX_LINE_LENGTH): string[] {
   return lines;
 }
 
-function playAudio(url: string): Promise<void> {
-  // When BASE_URL is absolute (direct connection), prefix with its origin.
-  // When BASE_URL is relative (Vite proxy), audio_url is already relative to current origin.
-  const audioSrc = BASE_URL.startsWith('http')
-    ? `${new URL(BASE_URL).origin}${url}`
-    : url;
+function resolveAudioSrc(url: string): string {
+  return BASE_URL.startsWith('http') ? `${new URL(BASE_URL).origin}${url}` : url;
+}
 
-  const audio = new Audio(audioSrc);
-
-  return new Promise<void>((res) => {
+/** Creates an Audio element and a promise that resolves when playback ends. */
+function createAudio(url: string): { audio: HTMLAudioElement; promise: Promise<void> } {
+  const audio = new Audio(resolveAudioSrc(url));
+  const promise = new Promise<void>((res) => {
     audio.addEventListener('ended', () => res(), { once: true });
     audio.addEventListener('error', (e) => {
       console.error('Audio playback failed:', e);
       res();
     }, { once: true });
+  });
+  return { audio, promise };
+}
 
-    audio.play().catch((e: unknown) => {
-      console.error('Audio play() rejected:', e);
-      res();
-    });
+function playAudio(url: string): Promise<void> {
+  const { audio, promise } = createAudio(url);
+  audio.play().catch((e: unknown) => {
+    console.error('Audio play() rejected:', e);
+  });
+  return promise;
+}
+
+/**
+ * For each display line, finds the first subtitle word that belongs to it
+ * (by sequential word count) and returns a show-time of 1 second before
+ * that word starts, clamped to 0.
+ */
+function mapLinesToTimings(
+  lines: string[],
+  subtitles: Subtitle[],
+): { line: string; showAt: number }[] {
+  let wordIdx = 0;
+  return lines.map((line) => {
+    const wordCount = line.split(/\s+/).filter(Boolean).length;
+    const showAt = Math.max(0, (subtitles[wordIdx]?.start ?? 0) - 1.0);
+    wordIdx += wordCount;
+    return { line, showAt };
+  });
+}
+
+/** Resolves when audio.currentTime reaches targetTime, or the signal aborts. */
+function waitForAudioTime(
+  audio: HTMLAudioElement,
+  targetTime: number,
+  signal: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (audio.currentTime >= targetTime) { resolve(); return; }
+
+    let rafId: number;
+    const check = () => {
+      if (signal.aborted || audio.currentTime >= targetTime) {
+        resolve();
+        return;
+      }
+      rafId = requestAnimationFrame(check);
+    };
+    rafId = requestAnimationFrame(check);
+    signal.addEventListener('abort', () => {
+      cancelAnimationFrame(rafId);
+      resolve();
+    }, { once: true });
   });
 }
 
@@ -166,10 +211,88 @@ export function useDebate(): UseDebateReturn {
       setThinkingName(data.philosopher);
     }
 
-    const audioPromise = data.audio_url ? playAudio(data.audio_url) : Promise.resolve();
-
     // Trigger GIF only when text is about to render, not during thinking delay
     setCurrentPhilosopher(data.philosopher === 'SYSTEM' ? null : data.philosopher);
+
+    if (data.subtitles?.length && data.audio_url) {
+      await processSubtitleTurn(data, signal);
+    } else {
+      await processTypewriterTurn(data, signal);
+    }
+  }
+
+  /**
+   * Subtitle-driven turn: reveals lines one at a time, each 1 second before
+   * its first word starts in the audio. Falls through to the caller's
+   * typewriter path when subtitles are absent.
+   */
+  async function processSubtitleTurn(data: ApiResponse, signal: AbortSignal): Promise<void> {
+    const { audio, promise: audioPromise } = createAudio(data.audio_url!);
+    audio.play().catch((e: unknown) => { console.error('Audio play() rejected:', e); });
+
+    const lines = formatLines(data.text);
+    const timings = mapLinesToTimings(lines, data.subtitles!);
+
+    for (let i = 0; i < timings.length; i += 1) {
+      if (signal.aborted) break;
+
+      await waitForAudioTime(audio, timings[i].showAt, signal);
+      if (signal.aborted) break;
+
+      // Flush the previous line to finishedLines before showing the next one
+      if (i > 0) {
+        setFinishedLines((prev) =>
+          [
+            ...prev,
+            {
+              id: Date.now() + Math.random(),
+              philosopher: data.philosopher,
+              text: timings[i - 1].line,
+              isNew: false,
+              turnType: data.turn_type,
+            },
+          ].slice(-FINISHED_LINES_KEPT),
+        );
+      }
+
+      setCurrentLine({
+        id: Date.now() + Math.random(),
+        philosopher: data.philosopher,
+        text: timings[i].line,
+        isNew: false,
+        turnType: data.turn_type,
+      });
+    }
+
+    // Hold until the audio track finishes before handing control back
+    await audioPromise;
+
+    // Flush the last line
+    if (timings.length > 0 && !signal.aborted) {
+      setFinishedLines((prev) =>
+        [
+          ...prev,
+          {
+            id: Date.now() + Math.random(),
+            philosopher: data.philosopher,
+            text: timings[timings.length - 1].line,
+            isNew: false,
+            turnType: data.turn_type,
+          },
+        ].slice(-FINISHED_LINES_KEPT),
+      );
+    }
+    setCurrentLine(null);
+  }
+
+  /**
+   * Typewriter mode: reveals each display line character-by-character using a
+   * fixed-interval timer. Audio plays in parallel and is awaited at the end.
+   * Prefetches the next response on the last line to enable mid-stream
+   * interruption detection.
+   */
+  async function processTypewriterTurn(data: ApiResponse, signal: AbortSignal): Promise<void> {
+    const audioPromise = data.audio_url ? playAudio(data.audio_url) : Promise.resolve();
 
     const lines = formatLines(data.text);
     for (let i = 0; i < lines.length; i += 1) {
