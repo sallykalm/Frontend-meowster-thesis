@@ -6,6 +6,12 @@ export interface IntroductionEntry {
   audio_url: string | null;
 }
 
+export interface Subtitle {
+  word: string;
+  start: number; // seconds into the audio
+  end: number;
+}
+
 export interface ApiResponse {
   philosopher: string;
   text: string;
@@ -16,6 +22,7 @@ export interface ApiResponse {
   // their truncated text, so the frontend can update their last displayed line.
   interrupted_speaker?: string | null;
   interrupted_text?: string | null;
+  subtitles?: Subtitle[] | null;
 }
 
 const REQUEST_TIMEOUT_MS = 10_000;

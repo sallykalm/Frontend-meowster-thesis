@@ -91,11 +91,20 @@ Use this when the user wants to skip the current debate and ask a new question.
   "philosopher": "Flusser",
   "text": "The apparatus does not ask permission...",
   "audio_url": "/api/audio/e5f6g7h8-...",
-  "is_last": false
+  "is_last": false,
+  "subtitles": [
+    { "word": "The",        "start": 0.00, "end": 0.12 },
+    { "word": "apparatus",  "start": 0.13, "end": 0.51 },
+    { "word": "does",       "start": 0.52, "end": 0.65 }
+  ]
 }
 ```
 
 - `audio_url` is `null` if TTS is disabled or this philosopher has no voice
+- `subtitles` is `null` when TTS is disabled or the philosopher has no voice; otherwise a list of word-level timestamp objects used for subtitle display
+  - `word` — the word as it appears in the text
+  - `start` — time in seconds when the word begins in the audio
+  - `end` — time in seconds when the word ends
 - `is_last: true` means the debate is finished — the server is now ready for a new question
 
 **Error responses**
@@ -158,3 +167,38 @@ Both servers live in `src/server/` and expose identical endpoints. Switching bet
 | Startup | Instant | Runs KB ingestion + loads philosophers |
 | TTS | Always off | Optional (`--tts`) |
 | Port | 15567 | 15567 |
+
+Run the mock server (frontend dev target, no LLM needed):
+```bash
+python -m src.server.mock_server
+```
+
+Run the real server:
+```bash
+python -m src.server.server [--tts] [--no-ingest] [--reset-kb]
+                             [--model MODEL] [--port PORT]
+                             [--only flusser,weibel]
+                             [--answer-length shortest|short|long]
+                             [--keep-history]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--tts` | off | Enable ElevenLabs TTS |
+| `--no-ingest` | off | Skip KB ingestion on startup |
+| `--reset-kb` | off | Delete and rebuild ChromaDB KB on startup |
+| `--model` | config default | Override LLM model for all calls |
+| `--port` | `15567` | HTTP port |
+| `--only` | all | Comma-separated list of philosophers to load |
+| `--answer-length` | `shortest` | Response length: `shortest`, `short`, or `long` |
+| `--keep-history` | off | Preserve conversation history across questions |
+
+See [mock_server.md](mock_server.md) and [server.md](server.md) for details.
+
+---
+
+## Response timing
+
+Responses are generated sequentially (one philosopher at a time). The delay between responses reflects LLM generation time — typically 2–8 seconds per response depending on length. The client should expect to block on `GET /api/next-response` for this duration.
+
+If the client takes longer to consume a response than the server takes to generate the next one, the next response will already be queued and the GET will return immediately.
