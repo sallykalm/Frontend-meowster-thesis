@@ -6,11 +6,14 @@ import Typewriter from './components/Typewriter';
 import ImageGrid from './components/ImageGrid';
 import InputSection from './components/InputSection';
 import AudienceInput, { type AudienceInputHandle } from './components/AudienceInput';
+import MicIndicator from './components/MicIndicator';
 import Menu from './components/Menu';
 import { useWebSpeech } from './hooks/useWebSpeech';
+import { useVoiceInput } from './hooks/useVoiceInput';
 import { useDotAnimation } from './hooks/useDotAnimation';
 import { useDebate } from './hooks/useDebate';
-import { clearQuestion, fetchDebateQuestions, fetchHealth } from './api';
+import { clearQuestion, fetchDebateQuestions, fetchHealth, postInterrupt, postCorrectTranscript } from './api';
+import { BARGE_IN_SUBMIT_DELAY_MS, parseAddressedTo } from './constants';
 // import { PORT } from './constants';
 import styles from './App.module.css';
 import './App.css';
@@ -28,6 +31,14 @@ function App() {
   const [isButtonsVisible, setIsButtonsVisible] = useState(false);
   const [isInputMinimal, setIsInputMinimal] = useState(true);
   const [isTtsEnabled, setIsTtsEnabled] = useState(false);
+  const [bargeinEnabled, setBargeinEnabled] = useState(true);
+  const [micMuted, setMicMuted] = useState(false);
+  const [bargeinMode, setBargeinMode] = useState<'moderator' | 'audience' | 'live'>('live');
+  const [liveInstructions, setLiveInstructions] = useState<string[]>([]);
+  // True while barge-in has fired but startDebate hasn't been called yet (correction in-flight).
+  const [isPreparingQuestion, setIsPreparingQuestion] = useState(false);
+  // Final transcript captured by barge-in, held until the session enters audience phase.
+  const [bargeinTranscript, setBargeinTranscript] = useState('');
 
   const inputRef = useRef<HTMLInputElement>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -40,7 +51,10 @@ function App() {
         fetchHealth(),
       ]);
       if (questions.length > 0) setDebateQuestions(questions);
-      if (health) setIsTtsEnabled(health.tts);
+      if (health) {
+        setIsTtsEnabled(health.tts);
+        setBargeinEnabled(Boolean(health.barge_in_enabled));
+      }
     };
     void load();
   }, []);
@@ -67,6 +81,9 @@ function App() {
     error,
     awaitingAudienceInput,
     isAudienceQuestion,
+    stopCurrentAudio,
+    interruptCurrentLine,
+    sendLiveInstruction,
     startDebate,
     abortDebate,
     resolveQuestionTypewriter,
@@ -74,10 +91,74 @@ function App() {
     runIntroduction,
   } = useDebate();
 
+
+  const handleBargeinSpeechStart = useCallback((): void => {
+    stopCurrentAudio();
+    interruptCurrentLine();
+    postInterrupt().catch(() => {});
+  }, [stopCurrentAudio, interruptCurrentLine]);
+
+  const handleBargeinTranscript = useCallback((text: string): void => {
+    const raw = text.trim();
+    if (!raw) return;
+
+    // Reject very short transcripts — likely filler words, coughs, or noise.
+    if (raw.split(/\s+/).length < 3) return;
+
+    // Always stop audio and interrupt typewriter immediately — fallback for when
+    // onspeechstart didn't fire (which is unreliable across browsers/platforms).
+    stopCurrentAudio();
+    interruptCurrentLine();
+
+    if (bargeinMode === 'live') {
+      // sendLiveInstruction corrects the raw transcript internally before posting.
+      void (async () => {
+        const accepted = await sendLiveInstruction(raw).catch(() => null);
+        // Replace (don't accumulate) — only the latest instruction is shown.
+        if (accepted) setLiveInstructions([accepted]);
+      })();
+    } else {
+      // Audience or moderator: abort current debate and restart with the transcript.
+      abortDebate();
+      setBargeinTranscript('');
+      setLiveInstructions([]);
+      setIsPreparingQuestion(true);
+      postCorrectTranscript(raw, submittedQuestion, currentPhilosopher)
+        .then((corrected: string) => { setIsPreparingQuestion(false); void startDebate(corrected, isVoiceEnabled); })
+        .catch(() => { setIsPreparingQuestion(false); void startDebate(raw, isVoiceEnabled); });
+    }
+  }, [bargeinMode, stopCurrentAudio, interruptCurrentLine, sendLiveInstruction, abortDebate, submittedQuestion, currentPhilosopher, startDebate, isVoiceEnabled, setIsPreparingQuestion]);
+
+  // Always-on barge-in mic. Active only while a debate is running and the
+  // user is not already recording a question with push-to-talk.
+  // isAudioPlaying is passed as false so the mic stays active even during TTS
+  // playback — barge-in is specifically for interrupting audio.
+  const { micState, interimTranscript } = useVoiceInput({
+    isAudioPlaying: false,
+    enabled: bargeinEnabled && !micMuted && isDebating && !awaitingAudienceInput && !isListening,
+    onSpeechStart: handleBargeinSpeechStart,
+    onTranscriptReady: handleBargeinTranscript,
+  });
+
+  // Auto-submit the barge-in transcript once the session enters its audience-input pause.
+  useEffect(() => {
+    if (!awaitingAudienceInput || !bargeinTranscript) return;
+    const timer = setTimeout(() => {
+      void handleAudienceQuestion(bargeinTranscript, parseAddressedTo(bargeinTranscript), false);
+      setBargeinTranscript('');
+    }, BARGE_IN_SUBMIT_DELAY_MS);
+    return () => clearTimeout(timer);
+  // parseAddressedTo and handleAudienceQuestion are stable within a render cycle;
+  // including them would cause spurious re-runs as the debate hook re-creates them.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [awaitingAudienceInput, bargeinTranscript]);
+
   const isAudienceStageActive = awaitingAudienceInput;
 
   function handleSubmit(question: string) {
     if (!question.trim() || isDebating) return;
+    setBargeinTranscript('');
+    setLiveInstructions([]);
     setUserQuestion('');
     void startDebate(question.trim(), isVoiceEnabled);
   }
@@ -86,11 +167,14 @@ function App() {
     if (isListening) {
       stopVoice();
       setTimeout(() => {
-        if (transcript.trim()) {
+        const raw = transcript.trim();
+        if (raw) {
           if (isDebating) abortDebate();
           setIsPaused(false);
           setIsFastForwarding(false);
-          void startDebate(transcript.trim(), isVoiceEnabled);
+          postCorrectTranscript(raw, submittedQuestion, currentPhilosopher)
+            .then((corrected: string) => { void startDebate(corrected, isVoiceEnabled); })
+            .catch(() => { void startDebate(raw, isVoiceEnabled); });
           resetVoice();
         }
       }, 100);
@@ -113,6 +197,9 @@ function App() {
     setIsPaused(false);
     setIsFastForwarding(false);
     setUserQuestion('');
+    setBargeinTranscript('');
+    setLiveInstructions([]);
+    setIsPreparingQuestion(false);
     clearQuestion().catch(console.error);
   }, [isDebating, abortDebate]);
 
@@ -145,6 +232,9 @@ function App() {
       if (e.key.toUpperCase() === 'V') setIsVoiceEnabled(!isVoiceEnabled);
       if (e.key.toUpperCase() === 'I') handleIntroduction();
       if (e.key.toUpperCase() === 'C') setIsCreditsOpen((o) => !o);
+      if (e.key.toUpperCase() === 'A') setBargeinMode((m) => (m === 'audience' ? 'live' : 'audience'));
+      if (e.key.toUpperCase() === 'O') setBargeinMode((m) => (m === 'moderator' ? 'live' : 'moderator'));
+      if (e.key.toUpperCase() === 'X') setMicMuted((m) => !m);
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -154,8 +244,11 @@ function App() {
         e.preventDefault();
         stopVoice();
         setTimeout(() => {
-          if (transcript.trim()) {
-            void startDebate(transcript.trim(), isVoiceEnabled);
+          const raw = transcript.trim();
+          if (raw) {
+            postCorrectTranscript(raw, submittedQuestion, currentPhilosopher)
+              .then((corrected: string) => { void startDebate(corrected, isVoiceEnabled); })
+              .catch(() => { void startDebate(raw, isVoiceEnabled); });
             resetVoice();
           }
         }, 100);
@@ -188,6 +281,9 @@ function App() {
     setIsCreditsOpen,
     isAudienceStageActive,
     isTtsEnabled,
+    submittedQuestion,
+    currentPhilosopher,
+    bargeinMode,
   ]);
 
   useEffect(() => {
@@ -223,6 +319,8 @@ function App() {
           isInputMinimal={isInputMinimal}
           imageSet={imageSet}
           isButtonsVisible={isButtonsVisible}
+          bargeinMode={bargeinMode}
+          micMuted={micMuted}
           onPausePlay={() => setIsPaused(!isPaused)}
           onStop={handleStop}
           onFastForward={(isActive: boolean) => { if (!isTtsEnabled) setIsFastForwarding(isActive); }}
@@ -230,6 +328,9 @@ function App() {
           onVoiceToggle={(enabled: boolean) => setIsVoiceEnabled(enabled)}
           onButtonsToggle={(visible: boolean) => setIsButtonsVisible(visible)}
           onInputModeToggle={(minimal: boolean) => setIsInputMinimal(minimal)}
+          onAudienceModeToggle={() => setBargeinMode((m) => (m === 'audience' ? 'live' : 'audience'))}
+          onModeratorModeToggle={() => setBargeinMode((m) => (m === 'moderator' ? 'live' : 'moderator'))}
+          onMicMuteToggle={() => setMicMuted((m) => !m)}
           onIntroduction={handleIntroduction}
           onCredits={() => setIsCreditsOpen(true)}
           onClose={() => setIsMenuOpen(false)}
@@ -272,7 +373,7 @@ function App() {
             margin: '20px 0 28px',
           }}
         >
-          <AudienceInput ref={audienceInputRef} onSubmit={handleAudienceQuestion} />
+          <AudienceInput ref={audienceInputRef} onSubmit={handleAudienceQuestion} contextQuestion={submittedQuestion} />
         </div>
       )}
 
@@ -289,7 +390,7 @@ function App() {
             <Typewriter
               key={String(questionRevision)}
               text={submittedQuestion}
-              onComplete={() => { (resolveQuestionTypewriter as () => void)(); }}
+              onComplete={resolveQuestionTypewriter}
             />
           ) : (
             submittedQuestion
@@ -297,7 +398,23 @@ function App() {
         </div>
       )}
 
-      {isDebating && !awaitingAudienceInput && !thinkingName && !currentPhilosopher && !currentLine && (
+      {liveInstructions.length > 0 && isDebating && (
+        <div className={styles.moderatorInstruction} aria-live="polite">
+          ▸ {liveInstructions[liveInstructions.length - 1]}
+        </div>
+      )}
+
+      {isPreparingQuestion && (
+        <div
+          className={styles.deliberating}
+          aria-live="polite"
+          aria-label="Processing question"
+        >
+          [ processing... ]
+        </div>
+      )}
+
+      {!isPreparingQuestion && isDebating && !awaitingAudienceInput && !thinkingName && !currentPhilosopher && !currentLine && (
         <div
           className={styles.deliberating}
           aria-live="polite"
@@ -328,6 +445,12 @@ function App() {
         currentLine={currentLine}
         isFastForwarding={isFastForwarding}
         isPaused={isPaused}
+      />
+
+      <MicIndicator
+        micState={micState}
+        interimTranscript={interimTranscript}
+        pendingTranscript={bargeinTranscript || undefined}
       />
     </main>
   );

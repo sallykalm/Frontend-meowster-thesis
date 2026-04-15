@@ -49,6 +49,24 @@
   animation: blink 1.2s infinite;
 }
 
+.moderatorInstruction {
+  color: #2dd4bf;
+  text-align: center;
+  font-size: 1em;
+  margin: 0.2em auto 0.8em auto;
+  letter-spacing: 1px;
+  max-width: 800px;
+  width: 100%;
+  padding: 0 20px;
+  box-sizing: border-box;
+  animation: fadein 0.4s ease;
+}
+
+@keyframes fadein {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .errorMessage {
   color: #ff4444;
   text-align: center;

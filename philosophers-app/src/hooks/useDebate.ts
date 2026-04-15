@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { submitQuestion, getNextResponse, clearQuestion, submitAudienceQuestion, fetchIntroductions } from '../api';
+import { submitQuestion, getNextResponse, clearQuestion, submitAudienceQuestion, fetchIntroductions, postLiveInstruction, postCorrectTranscript } from '../api';
 import type { ApiResponse } from '../api';
 import { BASE_URL, MAX_LINE_LENGTH, THINKING_DELAY_MS, FINISHED_LINES_KEPT } from '../constants';
 import type { ChatMessage } from '../types';
@@ -16,29 +16,6 @@ export function formatLines(text: string, maxLen = MAX_LINE_LENGTH): string[] {
   }
   if (t.length) lines.push(t);
   return lines;
-}
-
-function playAudio(url: string): Promise<void> {
-  // When BASE_URL is absolute (direct connection), prefix with its origin.
-  // When BASE_URL is relative (Vite proxy), audio_url is already relative to current origin.
-  const audioSrc = BASE_URL.startsWith('http')
-    ? `${new URL(BASE_URL).origin}${url}`
-    : url;
-
-  const audio = new Audio(audioSrc);
-
-  return new Promise<void>((res) => {
-    audio.addEventListener('ended', () => res(), { once: true });
-    audio.addEventListener('error', (e) => {
-      console.error('Audio playback failed:', e);
-      res();
-    }, { once: true });
-
-    audio.play().catch((e: unknown) => {
-      console.error('Audio play() rejected:', e);
-      res();
-    });
-  });
 }
 
 function sleep(ms: number): Promise<void> {
@@ -59,6 +36,10 @@ interface UseDebateReturn {
   isDebating: boolean;
   error: string | null;
   awaitingAudienceInput: boolean;
+  isAudioPlaying: boolean;
+  stopCurrentAudio: () => void;
+  interruptCurrentLine: () => void;
+  sendLiveInstruction: (instruction: string) => Promise<string | null>;
   startDebate: (question: string, isVoiceEnabled?: boolean) => Promise<void>;
   abortDebate: () => void;
   resolveQuestionTypewriter: () => void;
@@ -82,10 +63,19 @@ export function useDebate(): UseDebateReturn {
   const abortRef = useRef<AbortController | null>(null);
   const questionTypewriterResolveRef = useRef<(() => void) | null>(null);
   const awaitingAudienceInputRef = useRef(false);
+  // Set by interruptCurrentLine(); checked before each line in processPhilosopherTurn
+  // so the whole turn stops, not just the single line being typed.
+  const turnInterruptedRef = useRef(false);
 
   // Prefetch: holds the promise for the next response, started during the last
   // line of a philosopher's turn so the typewriter can be interrupted early.
   const prefetchPromiseRef = useRef<Promise<ApiResponse | null> | null>(null);
+
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioResolveRef = useRef<(() => void) | null>(null);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  // Tracks the last philosopher who completed a turn — used as STT correction context.
+  const lastPhilosopherRef = useRef<string | null>(null);
 
   function setAudienceAwaiting(value: boolean): void {
     awaitingAudienceInputRef.current = value;
@@ -101,6 +91,70 @@ export function useDebate(): UseDebateReturn {
     while (!signal.aborted && awaitingAudienceInputRef.current) {
       await sleep(100);
     }
+  }
+
+  function playAudioTracked(url: string): Promise<void> {
+    const audioSrc = BASE_URL.startsWith('http')
+      ? `${new URL(BASE_URL).origin}${url}`
+      : url;
+    const audio = new Audio(audioSrc);
+    currentAudioRef.current = audio;
+    setIsAudioPlaying(true);
+    return new Promise<void>((res) => {
+      audioResolveRef.current = res;
+      audio.addEventListener('ended', () => {
+        currentAudioRef.current = null;
+        audioResolveRef.current = null;
+        setIsAudioPlaying(false);
+        res();
+      }, { once: true });
+      audio.addEventListener('error', (e) => {
+        console.error('Audio playback failed:', e);
+        currentAudioRef.current = null;
+        audioResolveRef.current = null;
+        setIsAudioPlaying(false);
+        res();
+      }, { once: true });
+      audio.play().catch((e: unknown) => {
+        console.error('Audio play() rejected:', e);
+        currentAudioRef.current = null;
+        audioResolveRef.current = null;
+        setIsAudioPlaying(false);
+        res();
+      });
+    });
+  }
+
+  function stopCurrentAudio(): void {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+    }
+    // Resolve the hanging audioPromise — pause() does not fire 'ended',
+    // so without this the debate loop stalls forever at `await audioPromise`.
+    const resolve = audioResolveRef.current;
+    audioResolveRef.current = null;
+    resolve?.();
+    setIsAudioPlaying(false);
+  }
+
+  function interruptCurrentLine(): void {
+    turnInterruptedRef.current = true;
+    setCurrentLine((prev) => (prev ? { ...prev, interrupted: true } : prev));
+  }
+
+  async function sendLiveInstruction(instruction: string): Promise<string | null> {
+    interruptCurrentLine();
+    stopCurrentAudio();
+    // Discard any pre-fetched response — the next poll must get a fresh one
+    // generated with the instruction already in context.
+    prefetchPromiseRef.current = null;
+    const corrected = await postCorrectTranscript(
+      instruction,
+      submittedQuestion,
+      lastPhilosopherRef.current,
+    ).catch(() => instruction);
+    return postLiveInstruction(corrected);
   }
 
   async function processPhilosopherTurn(
@@ -166,14 +220,15 @@ export function useDebate(): UseDebateReturn {
       setThinkingName(data.philosopher);
     }
 
-    const audioPromise = data.audio_url ? playAudio(data.audio_url) : Promise.resolve();
+    const audioPromise = data.audio_url ? playAudioTracked(data.audio_url) : Promise.resolve();
 
     // Trigger GIF only when text is about to render, not during thinking delay
     setCurrentPhilosopher(data.philosopher === 'SYSTEM' ? null : data.philosopher);
 
+    turnInterruptedRef.current = false;
     const lines = formatLines(data.text);
     for (let i = 0; i < lines.length; i += 1) {
-      if (signal.aborted) break;
+      if (signal.aborted || turnInterruptedRef.current) break;
 
       const line = lines[i];
       const isLastLine = i === lines.length - 1;
@@ -212,7 +267,7 @@ export function useDebate(): UseDebateReturn {
         // On the last line: prefetch the next response so we can interrupt
         // the typewriter mid-stream if an interruption is coming.
         if (isLastLine && prefetchPromiseRef.current === null) {
-          prefetchPromiseRef.current = getNextResponse().then((nextData) => {
+          prefetchPromiseRef.current = getNextResponse(signal).then((nextData) => {
             if (
               nextData?.turn_type === 'interruption' &&
               nextData.interrupted_speaker === data.philosopher
@@ -224,6 +279,11 @@ export function useDebate(): UseDebateReturn {
         }
       });
     }
+
+    // Typing is done — stop the GIF now rather than waiting for audio to finish.
+    // This prevents the last speaker's portrait from staying "active" after the
+    // conversation ends while TTS audio is still playing.
+    setCurrentPhilosopher(null);
 
     await audioPromise;
   }
@@ -258,7 +318,7 @@ export function useDebate(): UseDebateReturn {
         data = await prefetchPromiseRef.current;
         prefetchPromiseRef.current = null;
       } else {
-        data = await getNextResponse();
+        data = await getNextResponse(signal);
       }
 
       // If we are currently paused for audience input, do not break the loop.
@@ -280,6 +340,7 @@ export function useDebate(): UseDebateReturn {
 
       if (data.philosopher !== 'SYSTEM') {
         lastPhilosopher = data.philosopher;
+        lastPhilosopherRef.current = data.philosopher;
       }
 
       if (data.is_last) break;
@@ -320,6 +381,7 @@ export function useDebate(): UseDebateReturn {
     setAudienceAwaiting(false);
     prefetchPromiseRef.current = null;
 
+    turnInterruptedRef.current = false;
     abortRef.current = new AbortController();
     const { signal } = abortRef.current;
 
@@ -369,7 +431,7 @@ export function useDebate(): UseDebateReturn {
 
       // Start audio in parallel with typewriter
       const audioPromise =
-        isVoiceEnabled && intro.audio_url ? playAudio(intro.audio_url) : Promise.resolve();
+        isVoiceEnabled && intro.audio_url ? playAudioTracked(intro.audio_url) : Promise.resolve();
 
       await new Promise<void>((resolve) => {
         setCurrentLine({
@@ -417,6 +479,10 @@ export function useDebate(): UseDebateReturn {
     isDebating,
     error,
     awaitingAudienceInput,
+    isAudioPlaying,
+    stopCurrentAudio,
+    interruptCurrentLine,
+    sendLiveInstruction,
     startDebate,
     abortDebate,
     resolveQuestionTypewriter,
