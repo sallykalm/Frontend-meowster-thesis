@@ -31,17 +31,30 @@ export const LINE_OPACITIES = [1, 1, 0.6, 0.3]; // newest → oldest
 export const TYPEWRITER_SPEED_MS = 90;
 
 export const TYPEWRITER_SPEED_BY_PHILOSOPHER: Record<string, number> = {
-  Flusser:     115,
-  Virilio:     85,
-  Weizenbaum:  80,
-  Weibel:      75,
-  Moderator:   90,
+  Flusser:     50,
+  Virilio:     50,
+  Weizenbaum:  50,
+  Weibel:      50,
+  Moderator:   50,
 };
 
 // Speech recognition
 export const SPEECH_LANGUAGE = 'en-US';
 
+// Barge-in: short pause (ms) before auto-submitting a captured transcript,
+// so the user can see what was transcribed before the question is sent.
+export const BARGE_IN_SUBMIT_DELAY_MS = 800;
+
 // Philosopher names used for audience question targeting chips
 export const PHILOSOPHER_NAMES = ['Flusser', 'Virilio', 'Weizenbaum', 'Weibel'] as const;
 export type PhilosopherName = typeof PHILOSOPHER_NAMES[number];
+
+/**
+ * Scan free-form text for philosopher name mentions and return the matched names.
+ * Used to auto-populate addressed_to from typed or transcribed questions.
+ */
+export function parseAddressedTo(text: string): string[] {
+  const lower = text.toLowerCase();
+  return PHILOSOPHER_NAMES.filter((name) => lower.includes(name.toLowerCase()));
+}
 

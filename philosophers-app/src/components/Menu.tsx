@@ -9,6 +9,7 @@ interface MenuProps {
   isButtonsVisible: boolean;
   isInputMinimal: boolean;
   imageSet: number;
+  bargeinMode: 'moderator' | 'audience' | 'live';
   onPausePlay: () => void;
   onStop: () => void;
   onFastForward: (isActive: boolean) => void;
@@ -16,6 +17,10 @@ interface MenuProps {
   onVoiceToggle: (enabled: boolean) => void;
   onButtonsToggle: (visible: boolean) => void;
   onInputModeToggle: (minimal: boolean) => void;
+  micMuted: boolean;
+  onAudienceModeToggle: () => void;
+  onModeratorModeToggle: () => void;
+  onMicMuteToggle: () => void;
   onIntroduction: () => void;
   onCredits: () => void;
   onClose: () => void;
@@ -29,6 +34,8 @@ const Menu = ({
   isButtonsVisible,
   isInputMinimal,
   imageSet,
+  bargeinMode,
+  micMuted,
   onPausePlay,
   onStop,
   onFastForward,
@@ -36,6 +43,9 @@ const Menu = ({
   onVoiceToggle,
   onButtonsToggle,
   onInputModeToggle,
+  onAudienceModeToggle,
+  onModeratorModeToggle,
+  onMicMuteToggle,
   onIntroduction,
   onCredits,
   onClose,
@@ -232,6 +242,45 @@ const Menu = ({
             </div>
             <div className="menu-button-status">
               {isInputMinimal ? 'OFF' : 'ON'}
+            </div>
+          </button>
+
+          {/* Audience mode toggle */}
+          <button
+            className={`menu-button ${bargeinMode === 'audience' ? 'active' : ''}`}
+            onClick={onAudienceModeToggle}
+            title="Barge-in submits as audience question (shortcut: A)"
+          >
+            <div className="menu-button-symbol">A</div>
+            <div className="menu-button-label">AUD Q</div>
+            <div className="menu-button-status">
+              {bargeinMode === 'audience' ? 'ON' : 'OFF'}
+            </div>
+          </button>
+
+          {/* Moderator question toggle */}
+          <button
+            className={`menu-button ${bargeinMode === 'moderator' ? 'active' : ''}`}
+            onClick={onModeratorModeToggle}
+            title="Barge-in restarts debate with new moderator question (shortcut: O)"
+          >
+            <div className="menu-button-symbol">O</div>
+            <div className="menu-button-label">MOD Q</div>
+            <div className="menu-button-status">
+              {bargeinMode === 'moderator' ? 'ON' : 'OFF'}
+            </div>
+          </button>
+
+          {/* Mic mute toggle */}
+          <button
+            className={`menu-button ${micMuted ? 'active' : ''}`}
+            onClick={onMicMuteToggle}
+            title="Mute/unmute barge-in microphone (shortcut: X)"
+          >
+            <div className="menu-button-symbol">X</div>
+            <div className="menu-button-label">MIC</div>
+            <div className="menu-button-status">
+              {micMuted ? 'MUTED' : 'ON'}
             </div>
           </button>
         </div>

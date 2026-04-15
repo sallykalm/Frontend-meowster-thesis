@@ -1,18 +1,21 @@
 import { forwardRef, useImperativeHandle, useMemo, useState } from 'react';
-import { PHILOSOPHER_NAMES } from '../constants';
+import { PHILOSOPHER_NAMES, parseAddressedTo } from '../constants';
 import type { PhilosopherName } from '../constants';
 import { useWebSpeech } from '../hooks/useWebSpeech';
+import { postCorrectTranscript } from '../api';
 import styles from './AudienceInput.module.css';
 
 interface AudienceInputProps {
   onSubmit: (question: string, addressedTo: string[], isFollowup: boolean) => Promise<void>;
+  /** Current debate question — used as context for speech recognition correction. */
+  contextQuestion?: string;
 }
 
 export interface AudienceInputHandle {
   toggleVoice: () => void;
 }
 
-const AudienceInput = forwardRef<AudienceInputHandle, AudienceInputProps>(function AudienceInput({ onSubmit }, ref) {
+const AudienceInput = forwardRef<AudienceInputHandle, AudienceInputProps>(function AudienceInput({ onSubmit, contextQuestion = '' }, ref) {
   const [question, setQuestion] = useState('');
   const [selected, setSelected] = useState<Set<PhilosopherName>>(new Set());
   const [submitting, setSubmitting] = useState(false);
@@ -59,16 +62,28 @@ const AudienceInput = forwardRef<AudienceInputHandle, AudienceInputProps>(functi
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    const finalQuestion = displayedQuestion.trim();
-    if (!finalQuestion || submitting) return;
+    const raw = displayedQuestion.trim();
+    if (!raw || submitting) return;
 
     setSubmitting(true);
 
+    // Capture before stop() changes the state.
+    const wasVoiceInput = isListening;
     if (isListening) {
       stop();
     }
 
-    await onSubmit(finalQuestion, Array.from(selected), false);
+    // Only correct voice-recorded input — typed text doesn't need speech recognition fixes.
+    const finalQuestion = wasVoiceInput
+      ? await postCorrectTranscript(raw, contextQuestion).catch(() => raw)
+      : raw;
+
+    // Merge manually selected chips with names parsed from the question text,
+    // so "Flusser, I want to know..." works without manually clicking the chip.
+    const fromText = parseAddressedTo(finalQuestion);
+    const merged = Array.from(new Set([...Array.from(selected), ...fromText]));
+
+    await onSubmit(finalQuestion, merged, false);
 
     setQuestion('');
     setSelected(new Set());

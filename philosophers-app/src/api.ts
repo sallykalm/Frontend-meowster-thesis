@@ -33,16 +33,40 @@ const MAX_504_RETRIES = 6;
 const BACKOFF_INITIAL_MS = 500;
 const BACKOFF_MAX_MS = 5_000;
 
-/** Fetches server health including whether TTS is enabled. Returns null on error. */
-export async function fetchHealth(): Promise<{ status: string; llm: boolean; tts: boolean } | null> {
+export interface HealthResponse {
+  status: string;
+  llm: boolean;
+  tts: boolean;
+  barge_in_enabled: boolean;
+}
+
+/** Fetches server health including TTS and barge-in status. Returns null on error. */
+export async function fetchHealth(): Promise<HealthResponse | null> {
   try {
     const response = await fetch(`${BASE_URL}health`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) return null;
-    return await response.json() as { status: string; llm: boolean; tts: boolean };
+    return await response.json() as HealthResponse;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Signals the backend that the audience has started speaking (barge-in).
+ * The backend flushes the TTS queue and sets a pending flag for Phase 4 wiring.
+ * Returns true if accepted, false if barge-in is disabled or no debate is active.
+ */
+export async function postInterrupt(): Promise<boolean> {
+  try {
+    const response = await fetch(`${BASE_URL}interrupt`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    return response.ok;
+  } catch {
+    return false;
   }
 }
 
@@ -80,15 +104,22 @@ export async function submitQuestion(text: string, generateAudio: boolean = true
  * Polls for the next philosopher response.
  * Retries with exponential backoff on 504.
  * Returns null when the debate ends or after repeated failures.
+ * Pass `debateSignal` so the fetch is aborted immediately when the debate is cancelled.
  */
-export async function getNextResponse(): Promise<ApiResponse | null> {
+export async function getNextResponse(debateSignal?: AbortSignal): Promise<ApiResponse | null> {
   let delay = BACKOFF_INITIAL_MS;
 
   for (let attempt = 0; attempt <= MAX_504_RETRIES; attempt += 1) {
+    // Abort early if the debate was cancelled before we even try.
+    if (debateSignal?.aborted) return null;
+
     try {
-      const response = await fetch(`${BASE_URL}next-response`, {
-        signal: AbortSignal.timeout(LONG_POLL_TIMEOUT_MS),
-      });
+      const timeoutSignal = AbortSignal.timeout(LONG_POLL_TIMEOUT_MS);
+      const signal = debateSignal
+        ? AbortSignal.any([debateSignal, timeoutSignal])
+        : timeoutSignal;
+
+      const response = await fetch(`${BASE_URL}next-response`, { signal });
 
       if (response.status === 504) {
         if (attempt < MAX_504_RETRIES) {
@@ -118,6 +149,8 @@ export async function getNextResponse(): Promise<ApiResponse | null> {
 
       return data;
     } catch (error) {
+      // A deliberate abort is not an error — return null cleanly.
+      if (debateSignal?.aborted) return null;
       console.error('Error getting next response:', error);
       return null;
     }
@@ -178,6 +211,54 @@ export async function fetchIntroductions(): Promise<IntroductionEntry[]> {
     return await response.json() as IntroductionEntry[];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Posts a live moderator instruction to the running debate.
+ * Returns the corrected instruction text, or null on failure.
+ */
+export async function postLiveInstruction(instruction: string): Promise<string | null> {
+  try {
+    const response = await fetch(`${BASE_URL}live-instruction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instruction }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    const data = await response.json() as { accepted: boolean; corrected: string };
+    return data.accepted ? data.corrected : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Corrects speech recognition errors in a transcript using LLM context.
+ * Returns the corrected text, or the original text if the call fails.
+ */
+export async function postCorrectTranscript(
+  text: string,
+  contextQuestion: string = '',
+  recentSpeaker: string | null = null,
+): Promise<string> {
+  try {
+    const response = await fetch(`${BASE_URL}correct-transcript`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text,
+        context_question: contextQuestion,
+        recent_speaker: recentSpeaker,
+      }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) return text;
+    const data = await response.json() as { corrected: string };
+    return data.corrected || text;
+  } catch {
+    return text;
   }
 }
 

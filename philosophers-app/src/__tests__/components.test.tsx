@@ -39,8 +39,6 @@ describe('DiscussionLog', () => {
       <DiscussionLog
         finishedLines={[]}
         currentLine={null}
-        isListening={false}
-        liveTranscript=""
       />,
     );
   });
@@ -53,8 +51,6 @@ describe('DiscussionLog', () => {
       <DiscussionLog
         finishedLines={lines}
         currentLine={null}
-        isListening={false}
-        liveTranscript=""
       />,
     );
     expect(screen.getByText('Flusser-AI')).toBeTruthy();
