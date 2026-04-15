@@ -2,18 +2,16 @@ version: '3.9'
 
 services:
   frontend:
-    build:
-      context: .
-      args:
-        VITE_API_HOST: ${VITE_API_HOST:-localhost}
-        VITE_API_PORT: ${VITE_API_PORT:-15567}
+    image: ghcr.io/sallykalm/frontend-meowster-thesis:latest
     ports:
       - '80:80'
     depends_on:
       - backend
 
-  # Replace with your actual backend service definition
   backend:
-    image: your-backend-image
+    image: ghcr.io/scionova/four_philosopher_core:latest
     ports:
       - '15567:15567'
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
