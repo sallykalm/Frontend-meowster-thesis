@@ -1,0 +1,294 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  height: 100vh;
+  overflow: hidden;
+  background: #0e0e0e;
+  color: #e0e0e0;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 14px;
+}
+
+/* ── Status bar ──────────────────────────────────────── */
+.statusBar {
+  padding: 10px 16px;
+  background: #161616;
+  border-bottom: 1px solid #2a2a2a;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #888;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.statusBar.active {
+  color: #4caf50;
+}
+
+.statusBar.awaiting {
+  color: #ff9800;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* ── Toolbar ─────────────────────────────────────────── */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: #161616;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.toolbarSep {
+  width: 1px;
+  height: 20px;
+  background: #2a2a2a;
+  margin: 0 4px;
+}
+
+/* ── Base button ─────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: #1e1e1e;
+  color: #aaa;
+  border: 1px solid #333;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  user-select: none;
+}
+
+.btn:hover {
+  background: #2a2a2a;
+  color: #ddd;
+  border-color: #444;
+}
+
+.btn.on {
+  background: #1a2a1a;
+  color: #4caf50;
+  border-color: #3a5a3a;
+}
+
+.btn.warning {
+  background: #2a1a1a;
+  color: #ef5350;
+  border-color: #5a2a2a;
+}
+
+.btn.warning:hover {
+  background: #3a1a1a;
+  border-color: #6a3a3a;
+}
+
+.btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Barge-in mode: 3-segment group */
+.segGroup {
+  display: inline-flex;
+  border: 1px solid #333;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.seg {
+  padding: 5px 9px;
+  background: #1e1e1e;
+  color: #666;
+  border: none;
+  border-right: 1px solid #333;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: background 0.1s, color 0.1s;
+  user-select: none;
+}
+
+.seg:last-child {
+  border-right: none;
+}
+
+.seg:hover {
+  background: #2a2a2a;
+  color: #aaa;
+}
+
+.seg.active {
+  background: #1a2a1a;
+  color: #4caf50;
+}
+
+.segLabel {
+  font-size: 10px;
+  color: #555;
+  letter-spacing: 0.05em;
+  align-self: center;
+}
+
+/* ── Hint bar (below input) ──────────────────────────── */
+.hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  padding: 10px 16px;
+  font-size: 15px;
+  color: #ccc;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #2a2a2a;
+  background: #161616;
+}
+
+/* ── Button grid ─────────────────────────────────────── */
+.buttonGrid {
+  flex: 1;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.buttonRow {
+  flex: 1;
+  display: flex;
+  gap: 10px;
+}
+
+.gridBtn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 3px;
+  color: #aaa;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  user-select: none;
+}
+
+.gridBtn:hover {
+  background: #2a2a2a;
+  color: #ddd;
+  border-color: #555;
+}
+
+.gridBtnSymbol {
+  font-size: 1.6rem;
+  font-weight: bold;
+  letter-spacing: 2px;
+  line-height: 1;
+}
+
+.gridBtnLabel {
+  font-size: 0.8rem;
+  letter-spacing: 1px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.gridBtnStatus {
+  font-size: 0.7rem;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+/* Active state variants */
+.gridBtnActiveWhite {
+  border-color: #999;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.gridBtnActiveGreen {
+  background: rgba(100, 200, 100, 0.15);
+  border-color: #64c864;
+  color: #fff;
+}
+.gridBtnActiveGreen .gridBtnStatus { color: #64c864; }
+
+.gridBtnActiveYellow {
+  background: rgba(255, 255, 100, 0.15);
+  border-color: #ffff64;
+  color: #fff;
+}
+
+.gridBtnActiveRed {
+  background: rgba(255, 100, 100, 0.15);
+  border-color: #ff6464;
+  color: #fff;
+}
+.gridBtnActiveRed .gridBtnStatus { color: #ff6464; }
+
+.gridBtnActiveBlue {
+  background: rgba(26, 107, 191, 0.25);
+  border-color: #3a9bef;
+  color: #fff;
+}
+
+.gridBtnStatusGreen { color: #64c864; }
+.gridBtnStatusRed   { color: #ff6464; }
+.gridBtnStatusDim   { color: #555; }
+
+/* ── Main content area ───────────────────────────────── */
+.content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.error {
+  font-size: 12px;
+  color: #ef5350;
+  padding: 6px 10px;
+  background: #1e1212;
+  border: 1px solid #3a1a1a;
+  border-radius: 3px;
+}
+
+.voiceCapture {
+  font-size: 12px;
+  color: #aaa;
+  padding: 6px 10px;
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+}
+
+.liveInstruction {
+  font-size: 12px;
+  color: #ce93d8;
+  padding: 6px 10px;
+  background: #1a1020;
+  border: 1px solid #3a1a4a;
+  border-radius: 3px;
+}

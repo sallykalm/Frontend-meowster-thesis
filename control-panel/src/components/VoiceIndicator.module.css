@@ -1,0 +1,32 @@
+.voiceInterface {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  margin-bottom: 50px;
+  min-height: 80px;
+  width: 100%;
+}
+
+.recordingIndicator {
+  color: var(--color-accent-pink);
+  font-weight: bold;
+  font-size: 0.9rem;
+  letter-spacing: 2px;
+  margin-bottom: 10px;
+  animation: blink 1s infinite;
+}
+
+.liveTranscript {
+  color: #ffffff;
+  font-size: 1.3rem;
+  font-style: italic;
+  border-left: 3px solid var(--color-accent-pink);
+  padding-left: 15px;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}

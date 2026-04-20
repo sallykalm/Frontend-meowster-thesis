@@ -1,0 +1,146 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 8000;
+  background: rgba(0, 0, 0, 0.96);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  color: #f0f0f0;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.box {
+  width: 760px;
+  max-width: 94vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  border: 1px solid #555;
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4em;
+}
+
+.title {
+  font-size: 1.4rem;
+  font-weight: bold;
+  letter-spacing: 4px;
+  color: var(--color-accent-pink);
+  text-align: center;
+}
+
+.subtitle {
+  text-align: center;
+  font-size: 0.85rem;
+  letter-spacing: 3px;
+  color: #888;
+  margin-top: -0.8em;
+}
+
+.divider {
+  color: #444;
+  font-size: 0.85rem;
+}
+
+.creditsList {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+}
+
+/* Bottom row: philosophers left, QR right */
+.bottomRow {
+  display: flex;
+  gap: 40px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.qrBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8em;
+  flex-shrink: 0;
+}
+
+.qrLabel {
+  font-size: 0.8rem;
+  letter-spacing: 1px;
+  color: #aaa;
+  text-align: center;
+}
+
+.qrImage {
+  width: 200px;
+  height: 200px;
+  image-rendering: pixelated;
+  margin-top: 0.8em;
+}
+
+/* Credits entries */
+.entry {
+  font-size: 0.9rem;
+  letter-spacing: 1px;
+  line-height: 1.5;
+}
+
+.name {
+  font-weight: bold;
+  color: #fff;
+}
+
+.entry span {
+  display: block;
+  color: #aaa;
+  font-size: 0.8rem;
+  font-style: italic;
+  margin-top: 0.1em;
+}
+
+/* Philosophers section */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+}
+
+.sectionTitle {
+  font-size: 0.75rem;
+  letter-spacing: 2px;
+  color: #888;
+  text-transform: uppercase;
+  margin-bottom: 0.2em;
+}
+
+.venue {
+  text-align: center;
+  font-size: 0.8rem;
+  letter-spacing: 1px;
+  color: #666;
+}
+
+.close {
+  text-align: center;
+  font-size: 0.8rem;
+  color: #555;
+  letter-spacing: 2px;
+}
+
+/* Narrow screens: stack bottom row */
+@media (max-width: 600px) {
+  .bottomRow {
+    flex-direction: column;
+  }
+
+  .qrBlock {
+    align-self: center;
+  }
+}
