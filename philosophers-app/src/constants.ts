@@ -8,10 +8,10 @@ export const COLORS: Record<string, string> = {
 };
 
 export const PHILOSOPHER_CONFIG: Record<string, { displayName: string, filePrefix: string }> = {
+  "Weizenbaum": { displayName: "Weizenbaum-AI", filePrefix: "weizenbaum" },  
   "Flusser": { displayName: "Flusser-AI", filePrefix: "flusser" },
-  "Weizenbaum": { displayName: "Weizenbaum-AI", filePrefix: "weizenbaum" },
-  "Virilio": { displayName: "Virilio-AI", filePrefix: "virilio" },
   "Weibel": { displayName: "Weibel-AI", filePrefix: "weibel" },
+  "Virilio": { displayName: "Virilio-AI", filePrefix: "virilio" },
   "Moderator": { displayName: "System", filePrefix: "moderator" }
 };
 

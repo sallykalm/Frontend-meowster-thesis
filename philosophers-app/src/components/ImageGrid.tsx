@@ -79,7 +79,7 @@ const ImageGrid = ({
                 style={{ color: COLORS[config.displayName] }}
                 aria-live="polite"
               >
-                {isInterrupting ? 'IS INTERRUPTING' : 'IS THINKING'}{'.'.repeat(dotCount)}
+                {isInterrupting ? 'IS INTERRUPTING' : ''}{'.'.repeat(dotCount)}
               </div>
             ) : (
               <div className={styles.philosopherThinking} aria-hidden="true" style={{ visibility: 'hidden' }} />
