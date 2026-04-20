@@ -13,6 +13,11 @@
   transition: opacity 0.8s ease;
 }
 
+.overlay.interactive {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
 .overlay.fadeOut {
   opacity: 0;
 }
@@ -53,6 +58,17 @@
   width: 0;
   white-space: nowrap;
   animation: fillBar 1.2s steps(20, end) forwards;
+}
+
+.prompt {
+  color: #fff;
+  opacity: 0;
+  animation: blink 1s steps(1) infinite, appear 0.1s forwards;
+}
+
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
 }
 
 @keyframes appear {

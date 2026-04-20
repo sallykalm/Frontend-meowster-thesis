@@ -21,7 +21,6 @@ interface MenuProps {
   onAudienceModeToggle: () => void;
   onModeratorModeToggle: () => void;
   onMicMuteToggle: () => void;
-  onIntroduction: () => void;
   onCredits: () => void;
   onClose: () => void;
 }
@@ -46,7 +45,6 @@ const Menu = ({
   onAudienceModeToggle,
   onModeratorModeToggle,
   onMicMuteToggle,
-  onIntroduction,
   onCredits,
   onClose,
 }: MenuProps) => {
@@ -91,12 +89,7 @@ const Menu = ({
     onImageSetChange(set);
   };
 
-  // Handle introduction button click
-  const handleIntroductionClick = () => {
-    onIntroduction();
-  };
-
-  if (!isMenuOpen) {
+if (!isMenuOpen) {
     return null;
   }
 
@@ -180,16 +173,6 @@ const Menu = ({
 
         {/* Future features and voice */}
         <div className="menu-group">
-          {/* Introduction button */}
-          <button
-            className="menu-button"
-            onClick={handleIntroductionClick}
-            title="Introduction (shortcut: I)"
-          >
-            <div className="menu-button-symbol">I</div>
-            <div className="menu-button-label">INTRO</div>
-          </button>
-
           {/* Credits button */}
           <button
             className="menu-button"

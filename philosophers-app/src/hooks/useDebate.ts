@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { submitQuestion, getNextResponse, clearQuestion, submitAudienceQuestion, fetchIntroductions, postLiveInstruction, postCorrectTranscript } from '../api';
+import { submitQuestion, getNextResponse, clearQuestion, submitAudienceQuestion, postLiveInstruction, postCorrectTranscript } from '../api';
 import type { ApiResponse, Subtitle } from '../api';
 import { BASE_URL, MAX_LINE_LENGTH, THINKING_DELAY_MS, FINISHED_LINES_KEPT } from '../constants';
 import type { ChatMessage } from '../types';
@@ -68,6 +68,11 @@ function waitForAudioTime(
         resolve();
         return;
       }
+      // Safety: if audio ended or errored without reaching targetTime, unblock.
+      if (audio.ended || audio.error) {
+        resolve();
+        return;
+      }
       rafId = requestAnimationFrame(check);
     };
     rafId = requestAnimationFrame(check);
@@ -75,6 +80,9 @@ function waitForAudioTime(
       cancelAnimationFrame(rafId);
       resolve();
     }, { once: true });
+    // Also unblock if playback ends before targetTime (e.g. shorter-than-expected audio)
+    audio.addEventListener('ended', () => { cancelAnimationFrame(rafId); resolve(); }, { once: true });
+    audio.addEventListener('error', () => { cancelAnimationFrame(rafId); resolve(); }, { once: true });
   });
 }
 
@@ -102,10 +110,15 @@ interface UseDebateReturn {
   interruptCurrentLine: () => void;
   sendLiveInstruction: (instruction: string) => Promise<string | null>;
   startDebate: (question: string, isVoiceEnabled?: boolean) => Promise<void>;
+  startPassiveLoop: () => void;
   abortDebate: () => void;
   resolveQuestionTypewriter: () => void;
   handleAudienceQuestion: (question: string, addressedTo: string[], isFollowup: boolean) => Promise<void>;
-  runIntroduction: (isVoiceEnabled: boolean) => Promise<void>;
+setPausePending: (val: boolean) => void;
+  triggerHardReset: () => void;
+  deactivateTalking: () => void;
+  resetForNewQuestion: () => void;
+  ragRelevanceMap: Record<string, number | null>;
 }
 
 export function useDebate(): UseDebateReturn {
@@ -120,10 +133,12 @@ export function useDebate(): UseDebateReturn {
   const [isDebating, setIsDebating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [awaitingAudienceInput, setAwaitingAudienceInput] = useState(false);
+  const [ragRelevanceMap, setRagRelevanceMap] = useState<Record<string, number | null>>({});
 
   const abortRef = useRef<AbortController | null>(null);
   const questionTypewriterResolveRef = useRef<(() => void) | null>(null);
   const awaitingAudienceInputRef = useRef(false);
+  const pausePendingRef = useRef(false);
   // Set by interruptCurrentLine(); checked before each line in processPhilosopherTurn
   // so the whole turn stops, not just the single line being typed.
   const turnInterruptedRef = useRef(false);
@@ -284,6 +299,14 @@ export function useDebate(): UseDebateReturn {
     // Trigger GIF only when text is about to render, not during thinking delay
     setCurrentPhilosopher(data.philosopher === 'SYSTEM' ? null : data.philosopher);
 
+    if (data.philosopher !== 'SYSTEM') {
+      setRagRelevanceMap((prev) => ({
+        ...prev,
+        [data.philosopher]: data.rag_relevance ?? null,
+      }));
+      console.log('[rag]', data.philosopher, 'distance:', data.rag_relevance ?? 'null (no RAG)');
+    }
+
     turnInterruptedRef.current = false;
 
     if (data.subtitles?.length && data.audio_url) {
@@ -297,9 +320,20 @@ export function useDebate(): UseDebateReturn {
    * Subtitle-driven turn: reveals lines one at a time, each 1 second before
    * its first word starts in the audio. Audio is tracked in currentAudioRef
    * so barge-in (stopCurrentAudio) can interrupt it cleanly.
+   *
+   * Prefetches the next response immediately (not just at the last line) so
+   * we can detect an incoming interruption and cut this speaker's audio at
+   * the exact timestamp the backend computed — making the cut feel real.
    */
   async function processSubtitleTurn(data: ApiResponse, signal: AbortSignal): Promise<void> {
     const { audio, promise: audioEnded } = createAudio(data.audio_url!);
+
+    // Turn-level controller: aborted when audio.play() fails (e.g. autoplay policy
+    // or any other rejection) so that waitForAudioTime unblocks instead of spinning
+    // forever in requestAnimationFrame on a frozen currentTime.
+    // Also aborted when an interruption cuts this turn short.
+    const turnController = new AbortController();
+    const timingSignal = AbortSignal.any([signal, turnController.signal]);
 
     // Track for barge-in: stopCurrentAudio() can pause this and unblock the await.
     currentAudioRef.current = audio;
@@ -314,18 +348,68 @@ export function useDebate(): UseDebateReturn {
       });
     });
 
-    audio.play().catch((e: unknown) => { console.error('Audio play() rejected:', e); });
+    audio.play().catch((e: unknown) => {
+      console.error('Audio play() rejected:', e);
+      // Abort the turn controller so every waitForAudioTime call unblocks immediately.
+      // Without this, the rAF loop spins forever when play() fails because
+      // audio.currentTime never advances, audio.ended stays false, and audio.error is null.
+      turnController.abort();
+      const resolve = audioResolveRef.current;
+      audioResolveRef.current = null;
+      currentAudioRef.current = null;
+      setIsAudioPlaying(false);
+      resolve?.();
+    });
+
+    // Prefetch the next response as soon as audio starts.
+    // This lets us detect an incoming interruption mid-playback and cut audio
+    // at exactly the right moment — rather than waiting for the full audio to
+    // finish before ever calling getNextResponse.
+    if (prefetchPromiseRef.current === null) {
+      prefetchPromiseRef.current = getNextResponse(signal).then((nextData) => {
+        if (
+          nextData?.turn_type === 'interruption' &&
+          nextData.interrupted_speaker === data.philosopher
+        ) {
+          const cutTime = nextData.interrupted_audio_cut_time;
+
+          const doCut = () => {
+            // Unblock all waitForAudioTime rAF loops in the line loop below.
+            turnController.abort();
+            // Pause audio and resolve audioPromise so processSubtitleTurn exits.
+            stopCurrentAudio();
+            // Mark whatever line is currently on screen as interrupted.
+            setCurrentLine((prev) => (prev ? { ...prev, interrupted: true } : prev));
+          };
+
+          if (cutTime != null && audio.currentTime < cutTime) {
+            // Wait until audio reaches the computed cut point, then cut.
+            void waitForAudioTime(audio, cutTime, signal).then(doCut);
+          } else {
+            // Already past cut time or no timestamp — cut immediately.
+            doCut();
+          }
+        }
+        return nextData;
+      });
+    }
 
     const lines = formatLines(data.text);
     const timings = mapLinesToTimings(lines, data.subtitles!);
 
+    // Index of the last line we actually displayed — used to flush the right
+    // line to finishedLines even when the turn is cut short by an interruption.
+    let lastShownIndex = -1;
+
     for (let i = 0; i < timings.length; i += 1) {
-      if (signal.aborted) break;
+      // Stop iterating if the outer signal aborts OR if an interruption fired.
+      if (signal.aborted || turnController.signal.aborted) break;
 
-      await waitForAudioTime(audio, timings[i].showAt, signal);
-      if (signal.aborted) break;
+      await waitForAudioTime(audio, timings[i].showAt, timingSignal);
 
-      // Flush the previous line to finishedLines before showing the next one
+      if (signal.aborted || turnController.signal.aborted) break;
+
+      // Flush the previous line to finishedLines before showing the next one.
       if (i > 0) {
         setFinishedLines((prev) =>
           [
@@ -348,20 +432,23 @@ export function useDebate(): UseDebateReturn {
         isNew: false,
         turnType: data.turn_type,
       });
+      lastShownIndex = i;
     }
 
-    // Hold until the audio track finishes (or barge-in resolves it early)
+    // Hold until the audio track finishes naturally, is cut by interruption,
+    // or is stopped by barge-in (all three paths resolve audioPromise).
     await audioPromise;
 
-    // Flush the last line
-    if (timings.length > 0 && !signal.aborted) {
+    // Flush the last line that was actually shown (not necessarily the last
+    // line of the full text — it may have been cut short by an interruption).
+    if (lastShownIndex >= 0 && !signal.aborted) {
       setFinishedLines((prev) =>
         [
           ...prev,
           {
             id: Date.now() + Math.random(),
             philosopher: data.philosopher,
-            text: timings[timings.length - 1].line,
+            text: timings[lastShownIndex].line,
             isNew: false,
             turnType: data.turn_type,
           },
@@ -428,6 +515,9 @@ export function useDebate(): UseDebateReturn {
               nextData.interrupted_speaker === data.philosopher
             ) {
               setCurrentLine((prev) => (prev ? { ...prev, interrupted: true } : prev));
+              // Also cut the audio — typewriter mode plays audio in parallel
+              // and it would otherwise finish naturally after the text stops.
+              stopCurrentAudio();
             }
             return nextData;
           });
@@ -559,68 +649,134 @@ export function useDebate(): UseDebateReturn {
     }
   }
 
+  /** Called by App.tsx when is_pause_pending changes in useStatus. */
+  function setPausePending(val: boolean): void {
+    pausePendingRef.current = val;
+  }
+
+  /**
+   * Immediately stops audio + typewriter and exits the passive loop.
+   * Does NOT clear finishedLines — text stays on screen.
+   * Called when hard_reset_seq increments in useStatus.
+   */
+  function triggerHardReset(): void {
+    stopCurrentAudio();
+    turnInterruptedRef.current = true;
+    setCurrentLine((prev) => (prev ? { ...prev, interrupted: true } : prev));
+    if (abortRef.current) abortRef.current.abort();
+    prefetchPromiseRef.current = null;
+    setCurrentPhilosopher(null);
+    setThinkingName(null);
+    setInterruptingName(null);
+    setIsDebating(false);
+    // finishedLines and submittedQuestion intentionally NOT cleared
+  }
+
+  /** Force all philosopher GIFs back to idle. Called when deactivate_talking_seq increments. */
+  function deactivateTalking(): void {
+    setCurrentPhilosopher(null);
+    setThinkingName(null);
+    setInterruptingName(null);
+  }
+
+  /**
+   * Stop current audio, clear all display state, and restart the passive loop.
+   * Called when the display detects a new question_id from useStatus — meaning
+   * the controls app submitted a new question while audio from the previous
+   * debate was still playing.
+   */
+  function resetForNewQuestion(): void {
+    stopCurrentAudio();
+    prefetchPromiseRef.current = null;
+    turnInterruptedRef.current = false;
+    setCurrentLine(null);
+    setCurrentPhilosopher(null);
+    setThinkingName(null);
+    setInterruptingName(null);
+    setIsDebating(false);
+    setFinishedLines([]);
+    setSubmittedQuestion('');
+    setAudienceAwaiting(false);
+    startPassiveLoop();
+  }
+
+  /**
+   * Passive display loop — polls `GET /api/next-response` continuously without
+   * submitting a question. Idles on 404, resets after `is_last`.
+   * Intended for the display-only frontend; the controls frontend calls
+   * `startDebate` instead.
+   */
+  function startPassiveLoop(): void {
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+    const { signal } = abortRef.current;
+
+    let lastPhilosopher: string | null = null;
+
+    const loop = async (): Promise<void> => {
+      while (!signal.aborted) {
+        let data: ApiResponse | null;
+        if (prefetchPromiseRef.current !== null) {
+          data = await prefetchPromiseRef.current;
+          prefetchPromiseRef.current = null;
+        } else {
+          data = await getNextResponse(signal);
+        }
+
+        if (!data) {
+          // Idle: no active debate. Back off for 5 s before retrying so the
+          // server log stays quiet when no question has been submitted.
+          if (!signal.aborted) await sleep(5000);
+          continue;
+        }
+
+        setIsDebating(true);
+        await processPhilosopherTurn(data, lastPhilosopher, signal);
+
+        if (!signal.aborted) {
+          setThinkingName(null);
+          setInterruptingName(null);
+        }
+
+        if (data.philosopher !== 'SYSTEM') {
+          lastPhilosopher = data.philosopher;
+          lastPhilosopherRef.current = data.philosopher;
+        }
+
+        // Soft-pause: stop after the current turn finishes, keep text on screen
+        if (pausePendingRef.current && !signal.aborted) {
+          setCurrentPhilosopher(null);
+          setThinkingName(null);
+          setInterruptingName(null);
+          setIsDebating(false);
+          // Tell backend to clear the pause flag
+          void fetch(`${BASE_URL}soft-pause`, { method: 'POST' });
+          break;
+        }
+
+        if (data.is_last) {
+          setCurrentPhilosopher(null);
+          setThinkingName(null);
+          setInterruptingName(null);
+          setIsDebating(false);
+          setFinishedLines([]);
+          setCurrentLine(null);
+          setSubmittedQuestion('');
+          setAudienceAwaiting(false);
+          lastPhilosopher = null;
+        }
+      }
+    };
+
+    void loop();
+  }
+
   function abortDebate(): void {
     if (abortRef.current && !abortRef.current.signal.aborted) {
       abortRef.current.abort();
     }
   }
 
-  async function runIntroduction(isVoiceEnabled: boolean): Promise<void> {
-    if (isDebating) return;
-
-    const introductions = await fetchIntroductions();
-    if (!introductions.length) return;
-
-    setIsDebating(true);
-    setFinishedLines([]);
-    setCurrentLine(null);
-    setCurrentPhilosopher(null);
-    setThinkingName(null);
-
-    for (const intro of introductions) {
-      // Brief thinking delay before each philosopher
-      setThinkingName(intro.philosopher);
-      await sleep(THINKING_DELAY_MS);
-      setThinkingName(null);
-      setCurrentPhilosopher(intro.philosopher);
-
-      // Start audio in parallel with typewriter
-      const audioPromise =
-        isVoiceEnabled && intro.audio_url ? playAudioTracked(intro.audio_url) : Promise.resolve();
-
-      await new Promise<void>((resolve) => {
-        setCurrentLine({
-          id: Date.now() + Math.random(),
-          philosopher: intro.philosopher,
-          text: intro.text,
-          isNew: true,
-          turnType: 'introduction',
-          onComplete: () => {
-            setFinishedLines((prev) =>
-              [
-                ...prev,
-                {
-                  id: Date.now() + Math.random(),
-                  philosopher: intro.philosopher,
-                  text: intro.text,
-                  isNew: false,
-                  turnType: 'introduction',
-                },
-              ].slice(-FINISHED_LINES_KEPT),
-            );
-            setCurrentLine(null);
-            resolve();
-          },
-        });
-      });
-
-      await audioPromise;
-    }
-
-    setCurrentPhilosopher(null);
-    setThinkingName(null);
-    setIsDebating(false);
-  }
 
   return {
     finishedLines,
@@ -639,9 +795,14 @@ export function useDebate(): UseDebateReturn {
     interruptCurrentLine,
     sendLiveInstruction,
     startDebate,
+    startPassiveLoop,
     abortDebate,
     resolveQuestionTypewriter,
     handleAudienceQuestion,
-    runIntroduction,
+    setPausePending,
+    triggerHardReset,
+    deactivateTalking,
+    resetForNewQuestion,
+    ragRelevanceMap,
   };
 }

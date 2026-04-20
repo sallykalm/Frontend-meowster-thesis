@@ -1,11 +1,5 @@
 import { BASE_URL } from './constants';
 
-export interface IntroductionEntry {
-  philosopher: string;
-  text: string;
-  audio_url: string | null;
-}
-
 export interface Subtitle {
   word: string;
   start: number; // seconds into the audio
@@ -22,7 +16,12 @@ export interface ApiResponse {
   // their truncated text, so the frontend can update their last displayed line.
   interrupted_speaker?: string | null;
   interrupted_text?: string | null;
+  // Seconds into the interrupted speaker's audio at which playback should stop.
+  // Use this to cut their audio exactly where the interruption happened.
+  interrupted_audio_cut_time?: number | null;
   subtitles?: Subtitle[] | null;
+  // ChromaDB min distance (lower = more relevant). null if RAG was not used.
+  rag_relevance?: number | null;
 }
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -198,19 +197,6 @@ export async function submitAudienceQuestion(
   } catch (error) {
     console.error('Error submitting audience question:', error);
     return false;
-  }
-}
-
-/** Fetches scripted introductions (text + optional pre-recorded audio URL). */
-export async function fetchIntroductions(): Promise<IntroductionEntry[]> {
-  try {
-    const response = await fetch(`${BASE_URL}introductions`, {
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    if (!response.ok) return [];
-    return await response.json() as IntroductionEntry[];
-  } catch {
-    return [];
   }
 }
 
