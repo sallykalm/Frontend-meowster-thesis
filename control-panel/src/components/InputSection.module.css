@@ -1,0 +1,73 @@
+.inputWrapper {
+  width: 100%;
+}
+
+.inputBox {
+  background: #1e1e1e;
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: border-color 0.2s;
+}
+
+.inputBox:focus-within {
+  border-color: #666;
+}
+
+.inputBox.disabled {
+  opacity: 0.5;
+}
+
+.input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #e8e8e8;
+  font-family: inherit;
+  font-size: 1rem;
+  outline: none;
+  min-width: 0;
+}
+
+.input::placeholder {
+  color: #c8a800;
+}
+
+.input:disabled {
+  cursor: not-allowed;
+}
+
+.sendButton {
+  background: #555;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  transition: background 0.1s;
+}
+
+.sendButton:hover:not(:disabled) {
+  background: #888;
+}
+
+.sendButton:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.suggestionHint {
+  margin: 5px 0 0 4px;
+  font-size: 0.72rem;
+  color: #444;
+  letter-spacing: 0.05em;
+}

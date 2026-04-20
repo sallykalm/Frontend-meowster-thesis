@@ -1,0 +1,24 @@
+:root {
+  --font-mono: 'Courier New', Courier, monospace;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: #0e0e0e;
+  color: #e0e0e0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
