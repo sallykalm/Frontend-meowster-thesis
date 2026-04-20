@@ -21,6 +21,15 @@ interface ImageGridProps {
   interruptingName: string | null;
   currentPhilosopher: string | null;
   isPaused?: boolean;
+  ragRelevanceMap?: Record<string, number | null>;
+}
+
+function ragFilter(distance: number | null | undefined): string | undefined {
+  if (distance == null) return undefined;
+  const intensity = Math.max(0, 1 - distance / 2.0);
+  const brightness = (0.85 + intensity * 0.5).toFixed(2);
+  const saturate = (0.7 + intensity * 0.9).toFixed(2);
+  return `brightness(${brightness}) saturate(${saturate})`;
 }
 
 /** Image sets that have animated GIF files available. */
@@ -34,6 +43,7 @@ const ImageGrid = ({
   interruptingName,
   currentPhilosopher,
   isPaused = false,
+  ragRelevanceMap = {},
 }: ImageGridProps) => {
   const dotCount = useDotAnimation(!!(thinkingName ?? interruptingName));
 
@@ -68,7 +78,11 @@ const ImageGrid = ({
               style={{ borderColor: COLORS[config.displayName] }}
               aria-busy={isThinking || isInterrupting}
             >
-              <img src={imgSrc} alt={config.displayName} />
+              <img
+                src={imgSrc}
+                alt={config.displayName}
+                style={isGif ? { filter: ragFilter(ragRelevanceMap[baseName]) } : undefined}
+              />
             </div>
             <div className={styles.philosopherLabel} style={{ color: COLORS[config.displayName] }}>
               {config.displayName.toUpperCase()}

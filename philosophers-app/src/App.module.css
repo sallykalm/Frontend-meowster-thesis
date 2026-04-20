@@ -1,7 +1,10 @@
 .appContainer {
-  max-width: 1600px;
-  margin: 0 auto;
-  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100%;
+  padding: 20px 20px 0;
+  box-sizing: border-box;
   font-family: var(--font-mono);
 }
 
@@ -9,62 +12,27 @@
   color: var(--color-accent-pink);
   text-align: center;
   font-size: 1.2em;
-  margin: 2em auto 1em auto;
+  margin: 1em auto 0.5em auto;
   font-weight: bold;
   letter-spacing: 1px;
   max-width: 800px;
   width: 100%;
   padding: 0 20px;
   box-sizing: border-box;
-}
-
-.liveTranscript {
-  color: #ffffff;
-  font-size: 1.3rem;
-  font-style: italic;
-  border-left: 3px solid var(--color-accent-pink);
-  padding-left: 15px;
-  display: inline-block;
-}
-
-.recordingIndicator {
-  color: var(--color-accent-pink);
-  font-weight: bold;
-  font-size: 0.9rem;
-  letter-spacing: 2px;
-  animation: blink 1s infinite;
-}
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
 }
 
 .deliberating {
   color: var(--color-accent-pink);
   text-align: center;
   font-size: 1em;
-  margin: 1.5em auto 0.5em auto;
+  margin: 1em auto 0.5em auto;
   letter-spacing: 2px;
   animation: blink 1.2s infinite;
 }
 
-.moderatorInstruction {
-  color: #2dd4bf;
-  text-align: center;
-  font-size: 1em;
-  margin: 0.2em auto 0.8em auto;
-  letter-spacing: 1px;
-  max-width: 800px;
-  width: 100%;
-  padding: 0 20px;
-  box-sizing: border-box;
-  animation: fadein 0.4s ease;
-}
-
-@keyframes fadein {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 .errorMessage {
@@ -80,6 +48,6 @@
 
 @media (max-width: 480px) {
   .appContainer {
-    padding: 20px 10px;
+    padding: 10px 10px 0;
   }
 }
