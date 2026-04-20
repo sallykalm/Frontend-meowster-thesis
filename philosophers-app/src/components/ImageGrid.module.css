@@ -30,11 +30,11 @@
 }
 
 .philosopherLabel {
-  font-family: Georgia, 'Times New Roman', Times, serif;
+  font-family: var(--font-mono);
   font-weight: normal;
   font-size: 1.1rem;
   letter-spacing: 3px;
-  font-style: italic;
+  font-style: normal;
 }
 
 .philosopherThinking {

@@ -19,6 +19,7 @@ body {
   color: var(--color-text);
   font-family: var(--font-mono);
   overflow-x: hidden;
+  overflow-y: hidden;
   caret-color: transparent;
   cursor: default;
 }

@@ -3,6 +3,7 @@ import BootScreen from './components/BootScreen';
 import Credits from './components/Credits';
 import DiscussionLog from './components/DiscussionLog';
 import MicIndicator from './components/MicIndicator';
+import SubtitleView from './components/SubtitleView';
 import Typewriter from './components/Typewriter';
 import ImageGrid from './components/ImageGrid';
 import { useDebate } from './hooks/useDebate';
@@ -38,6 +39,7 @@ function App() {
     isDebating,
     error,
     awaitingAudienceInput,
+    subtitleChunk,
     resolveQuestionTypewriter,
     startPassiveLoop,
     setPausePending,
@@ -158,12 +160,16 @@ function App() {
         </div>
       )}
 
-      <DiscussionLog
-        finishedLines={finishedLines}
-        currentLine={currentLine}
-        isFastForwarding={is_fast_forwarding}
-        isPaused={false}
-      />
+      {subtitleChunk ? (
+        <SubtitleView chunk={subtitleChunk} />
+      ) : (
+        <DiscussionLog
+          finishedLines={finishedLines}
+          currentLine={currentLine}
+          isFastForwarding={is_fast_forwarding}
+          isPaused={false}
+        />
+      )}
 
       <MicIndicator
         micState={barge_in_active ? 'speaking' : 'idle'}

@@ -8,10 +8,10 @@ export const COLORS: Record<string, string> = {
 };
 
 export const PHILOSOPHER_CONFIG: Record<string, { displayName: string, filePrefix: string }> = {
+  "Weizenbaum": { displayName: "Weizenbaum-AI", filePrefix: "weizenbaum" },  
   "Flusser": { displayName: "Flusser-AI", filePrefix: "flusser" },
-  "Weizenbaum": { displayName: "Weizenbaum-AI", filePrefix: "weizenbaum" },
-  "Virilio": { displayName: "Virilio-AI", filePrefix: "virilio" },
   "Weibel": { displayName: "Weibel-AI", filePrefix: "weibel" },
+  "Virilio": { displayName: "Virilio-AI", filePrefix: "virilio" },
   "Moderator": { displayName: "System", filePrefix: "moderator" }
 };
 
@@ -22,6 +22,7 @@ export const BASE_URL = `http://${API_HOST}:${API_PORT}/api/`;
 
 // Debate timing and display
 export const MAX_LINE_LENGTH = 80;
+export const SUBTITLE_CLEAR_DELAY_MS = 500;
 export const THINKING_DELAY_MS = 5000;
 export const FINISHED_LINES_KEPT = 3;
 export const MAX_VISIBLE_LINES = 4;

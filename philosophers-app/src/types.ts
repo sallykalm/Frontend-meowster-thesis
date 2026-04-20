@@ -1,3 +1,9 @@
+export interface SubtitleChunk {
+  text: string;
+  philosopher: string;
+  turnType?: string | null;
+}
+
 export interface ChatMessage {
   id: number;
   philosopher: string;
