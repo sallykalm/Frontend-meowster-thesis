@@ -1,8 +1,10 @@
 import { useState, useRef } from 'react';
 import { submitQuestion, getNextResponse, clearQuestion, submitAudienceQuestion, fetchIntroductions, postLiveInstruction, postCorrectTranscript } from '../api';
-import type { ApiResponse, Subtitle } from '../api';
-import { BASE_URL, MAX_LINE_LENGTH, THINKING_DELAY_MS, FINISHED_LINES_KEPT } from '../constants';
-import type { ChatMessage } from '../types';
+import type { ApiResponse } from '../api';
+import { BASE_URL, MAX_LINE_LENGTH, SUBTITLE_CLEAR_DELAY_MS, THINKING_DELAY_MS, FINISHED_LINES_KEPT } from '../constants';
+import type { ChatMessage, SubtitleChunk } from '../types';
+import { chunkSubtitleText } from '../utils/subtitleChunker';
+import { mapChunksToTimings } from '../utils/mapChunksToTimings';
 
 /** Splits text into lines no longer than maxLen characters, breaking at word boundaries. */
 export function formatLines(text: string, maxLen = MAX_LINE_LENGTH): string[] {
@@ -33,24 +35,6 @@ function createAudio(url: string): { audio: HTMLAudioElement; promise: Promise<v
     }, { once: true });
   });
   return { audio, promise };
-}
-
-/**
- * For each display line, finds the first subtitle word that belongs to it
- * (by sequential word count) and returns a show-time of 1 second before
- * that word starts, clamped to 0.
- */
-function mapLinesToTimings(
-  lines: string[],
-  subtitles: Subtitle[],
-): { line: string; showAt: number }[] {
-  let wordIdx = 0;
-  return lines.map((line) => {
-    const wordCount = line.split(/\s+/).filter(Boolean).length;
-    const showAt = Math.max(0, (subtitles[wordIdx]?.start ?? 0) - 1.0);
-    wordIdx += wordCount;
-    return { line, showAt };
-  });
 }
 
 /** Resolves when audio.currentTime reaches targetTime, or the signal aborts. */
@@ -98,6 +82,7 @@ interface UseDebateReturn {
   error: string | null;
   awaitingAudienceInput: boolean;
   isAudioPlaying: boolean;
+  subtitleChunk: SubtitleChunk | null;
   stopCurrentAudio: () => void;
   interruptCurrentLine: () => void;
   sendLiveInstruction: (instruction: string) => Promise<string | null>;
@@ -135,6 +120,8 @@ export function useDebate(): UseDebateReturn {
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioResolveRef = useRef<(() => void) | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [subtitleChunk, setSubtitleChunk] = useState<SubtitleChunk | null>(null);
+  const subtitleClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks the last philosopher who completed a turn — used as STT correction context.
   const lastPhilosopherRef = useRef<string | null>(null);
 
@@ -294,14 +281,18 @@ export function useDebate(): UseDebateReturn {
   }
 
   /**
-   * Subtitle-driven turn: reveals lines one at a time, each 1 second before
-   * its first word starts in the audio. Audio is tracked in currentAudioRef
-   * so barge-in (stopCurrentAudio) can interrupt it cleanly.
+   * Subtitle-driven turn: shows chunks of up to 2 lines at a time, advancing
+   * at word-timing boundaries. Audio is tracked in currentAudioRef so
+   * barge-in (stopCurrentAudio) can interrupt it cleanly.
    */
   async function processSubtitleTurn(data: ApiResponse, signal: AbortSignal): Promise<void> {
-    const { audio, promise: audioEnded } = createAudio(data.audio_url!);
+    // Cancel any pending clear from the previous turn
+    if (subtitleClearTimerRef.current !== null) {
+      clearTimeout(subtitleClearTimerRef.current);
+      subtitleClearTimerRef.current = null;
+    }
 
-    // Track for barge-in: stopCurrentAudio() can pause this and unblock the await.
+    const { audio, promise: audioEnded } = createAudio(data.audio_url!);
     currentAudioRef.current = audio;
     setIsAudioPlaying(true);
     const audioPromise = new Promise<void>((res) => {
@@ -316,59 +307,34 @@ export function useDebate(): UseDebateReturn {
 
     audio.play().catch((e: unknown) => { console.error('Audio play() rejected:', e); });
 
-    const lines = formatLines(data.text);
-    const timings = mapLinesToTimings(lines, data.subtitles!);
+    const chunks = chunkSubtitleText(data.text, MAX_LINE_LENGTH);
+    const timings = mapChunksToTimings(chunks, data.subtitles!);
 
-    for (let i = 0; i < timings.length; i += 1) {
-      if (signal.aborted) break;
+    // Show first chunk immediately
+    if (timings.length > 0) {
+      setSubtitleChunk({ text: timings[0].chunk, philosopher: data.philosopher, turnType: data.turn_type });
+    }
 
+    // Advance on each subsequent chunk's showAt time
+    for (let i = 1; i < timings.length; i++) {
       await waitForAudioTime(audio, timings[i].showAt, signal);
       if (signal.aborted) break;
-
-      // Flush the previous line to finishedLines before showing the next one
-      if (i > 0) {
-        setFinishedLines((prev) =>
-          [
-            ...prev,
-            {
-              id: Date.now() + Math.random(),
-              philosopher: data.philosopher,
-              text: timings[i - 1].line,
-              isNew: false,
-              turnType: data.turn_type,
-            },
-          ].slice(-FINISHED_LINES_KEPT),
-        );
-      }
-
-      setCurrentLine({
-        id: Date.now() + Math.random(),
-        philosopher: data.philosopher,
-        text: timings[i].line,
-        isNew: false,
-        turnType: data.turn_type,
-      });
+      setSubtitleChunk({ text: timings[i].chunk, philosopher: data.philosopher, turnType: data.turn_type });
     }
 
-    // Hold until the audio track finishes (or barge-in resolves it early)
     await audioPromise;
 
-    // Flush the last line
-    if (timings.length > 0 && !signal.aborted) {
-      setFinishedLines((prev) =>
-        [
-          ...prev,
-          {
-            id: Date.now() + Math.random(),
-            philosopher: data.philosopher,
-            text: timings[timings.length - 1].line,
-            isNew: false,
-            turnType: data.turn_type,
-          },
-        ].slice(-FINISHED_LINES_KEPT),
-      );
+    const wasInterrupted = turnInterruptedRef.current;
+    if (wasInterrupted || signal.aborted) {
+      // Interrupted: clear immediately so the next speaker can take over
+      setSubtitleChunk(null);
+    } else {
+      // Normal end: 0.5 s grace period, then clear
+      subtitleClearTimerRef.current = setTimeout(() => {
+        subtitleClearTimerRef.current = null;
+        setSubtitleChunk(null);
+      }, SUBTITLE_CLEAR_DELAY_MS);
     }
-    setCurrentLine(null);
   }
 
   /**
@@ -536,6 +502,12 @@ export function useDebate(): UseDebateReturn {
     setAudienceAwaiting(false);
     prefetchPromiseRef.current = null;
 
+    if (subtitleClearTimerRef.current !== null) {
+      clearTimeout(subtitleClearTimerRef.current);
+      subtitleClearTimerRef.current = null;
+    }
+    setSubtitleChunk(null);
+
     turnInterruptedRef.current = false;
     abortRef.current = new AbortController();
     const { signal } = abortRef.current;
@@ -635,6 +607,7 @@ export function useDebate(): UseDebateReturn {
     error,
     awaitingAudienceInput,
     isAudioPlaying,
+    subtitleChunk,
     stopCurrentAudio,
     interruptCurrentLine,
     sendLiveInstruction,

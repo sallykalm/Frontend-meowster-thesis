@@ -1,0 +1,81 @@
+.subtitleView {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 80px;
+  margin-top: 2rem;
+  width: 100%;
+  position: relative;
+}
+
+.subtitleBlock {
+  position: relative;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.nameLabel {
+  position: absolute;
+  right: 100%;
+  top: 0;
+  width: 180px;
+  margin-right: 2rem;
+  text-align: right;
+  font-weight: bold;
+  font-size: 1rem;
+  font-family: var(--font-mono);
+  line-height: 1.5;
+  transition: color 0.3s;
+  white-space: nowrap;
+}
+
+.textBlock {
+  display: flex;
+  flex-direction: column;
+  height: 3.2em;
+  min-height: 3.2em;
+  text-align: left;
+}
+
+.subtitleLine {
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  line-height: 1.6em;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  min-height: 1.5em;
+}
+
+.interruptTag {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: normal;
+  opacity: 0.6;
+  margin-bottom: 0.1em;
+}
+
+.resumeTag {
+  font-size: 0.75rem;
+  font-weight: normal;
+  opacity: 0.6;
+}
+
+@media (max-width: 900px) {
+  .nameLabel {
+    position: static;
+    text-align: left;
+    width: auto;
+    margin-bottom: 0.2em;
+    margin-right: 0;
+  }
+  .subtitleBlock {
+    padding-left: 20px;
+  }
+  .textBlock {
+    max-width: 100%;
+  }
+}

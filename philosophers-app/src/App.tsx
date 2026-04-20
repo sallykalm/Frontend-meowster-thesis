@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import BootScreen from './components/BootScreen';
 import Credits from './components/Credits';
 import DiscussionLog from './components/DiscussionLog';
+import SubtitleView from './components/SubtitleView';
 import Typewriter from './components/Typewriter';
 import ImageGrid from './components/ImageGrid';
 import InputSection from './components/InputSection';
@@ -81,6 +82,7 @@ function App() {
     error,
     awaitingAudienceInput,
     isAudienceQuestion,
+    subtitleChunk,
     stopCurrentAudio,
     interruptCurrentLine,
     sendLiveInstruction,
@@ -440,12 +442,16 @@ function App() {
         </div>
       )}
 
-      <DiscussionLog
-        finishedLines={finishedLines}
-        currentLine={currentLine}
-        isFastForwarding={isFastForwarding}
-        isPaused={isPaused}
-      />
+      {isTtsEnabled ? (
+        <SubtitleView chunk={subtitleChunk} />
+      ) : (
+        <DiscussionLog
+          finishedLines={finishedLines}
+          currentLine={currentLine}
+          isFastForwarding={isFastForwarding}
+          isPaused={isPaused}
+        />
+      )}
 
       <MicIndicator
         micState={micState}
