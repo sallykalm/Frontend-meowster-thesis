@@ -2,10 +2,10 @@
 :root {
   --color-bg: #000000;
   --color-text: #f0f0f0;
-  --color-accent-pink: #ff69b4;
+  --color-accent-pink: #979797;
   --color-accent-weizenbaum: #97D700;
   --color-accent-flusser: #FA4616;
-  --color-accent-virilio: #E0E721;
+  --color-accent-virilio: #fff627;
   --color-accent-weibel: #8DC8E8;
   --font-mono: 'Courier New', Courier, monospace;
   --typewriter-speed: 125ms;
