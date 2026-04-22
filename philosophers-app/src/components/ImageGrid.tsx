@@ -102,13 +102,13 @@ const ImageGrid = ({
             <div className={styles.philosopherLabel} style={{ color: COLORS[config.displayName] }}>
               {config.displayName.toUpperCase()}
             </div>
-            {(isThinking || isInterrupting) ? (
+            {isThinking ? (
               <div
                 className={styles.philosopherThinking}
                 style={{ color: COLORS[config.displayName] }}
                 aria-live="polite"
               >
-                {isInterrupting ? 'IS INTERRUPTING' : ''}{'.'.repeat(dotCount)}
+                {'.'.repeat(dotCount)}
               </div>
             ) : (
               <div className={styles.philosopherThinking} aria-hidden="true" style={{ visibility: 'hidden' }} />

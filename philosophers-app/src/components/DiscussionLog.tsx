@@ -61,13 +61,7 @@ const DiscussionLog = ({
             style={{ marginTop: blockIdx !== 0 ? '0.5em' : '0' }}
           >
             <div className={styles.nameLabel} style={{ color: block.nameColor }}>
-              {block.turnType === 'interruption' && (
-                <span className={styles.interruptTag}>—</span>
-              )}
               {block.displayName}
-              {block.turnType === 'interrupted_return' && (
-                <span className={styles.resumeTag}> ↩</span>
-              )}
             </div>
 
             <div className={styles.textLinesBlock}>
