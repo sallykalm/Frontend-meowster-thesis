@@ -14,6 +14,8 @@ export interface SessionStatus {
   hard_reset_seq: number;
   deactivate_talking_seq: number;
   is_round_up_pending: boolean;
+  clear_history_seq: number;
+  clear_question_seq: number;
 }
 
 const DEFAULT_STATUS: SessionStatus = {
@@ -29,6 +31,8 @@ const DEFAULT_STATUS: SessionStatus = {
   hard_reset_seq: 0,
   deactivate_talking_seq: 0,
   is_round_up_pending: false,
+  clear_history_seq: 0,
+  clear_question_seq: 0,
 };
 
 /**
