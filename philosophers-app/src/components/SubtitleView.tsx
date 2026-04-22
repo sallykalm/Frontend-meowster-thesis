@@ -17,9 +17,7 @@ const SubtitleView = ({ chunk }: SubtitleViewProps) => {
     <section className={styles.subtitleView} role="log" aria-live="polite" aria-label="Philosopher subtitles">
       <div className={styles.subtitleBlock}>
         <div className={styles.nameLabel} style={{ color: nameColor }}>
-          {chunk.turnType === 'interruption' && <span className={styles.interruptTag}>—</span>}
           {displayName}
-          {chunk.turnType === 'interrupted_return' && <span className={styles.resumeTag}> ↩</span>}
         </div>
         <div className={styles.textBlock}>
           {lines.map((line, i) => (

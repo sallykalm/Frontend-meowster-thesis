@@ -8,6 +8,8 @@ import Typewriter from './components/Typewriter';
 import ImageGrid from './components/ImageGrid';
 import { useDebate } from './hooks/useDebate';
 import { useStatus } from './hooks/useStatus';
+import { useVoiceInput } from './hooks/useVoiceInput';
+import { postInterrupt } from './api';
 import { BASE_URL } from './constants';
 import styles from './App.module.css';
 import './App.css';
@@ -41,6 +43,9 @@ function App() {
     isDebating,
     error,
     awaitingAudienceInput,
+    isAudioPlaying,
+    stopCurrentAudio,
+    interruptCurrentLine,
     subtitleChunk,
     resolveQuestionTypewriter,
     startPassiveLoop,
@@ -51,6 +56,29 @@ function App() {
     clearHistory,
     ragRelevanceMap,
   } = useDebate();
+
+  const [micMuted, setMicMuted] = useState(true);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement).tagName === 'INPUT') return;
+      if (e.key.toUpperCase() === 'X') setMicMuted((m) => !m);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handleSpeechStart = useCallback(() => {
+    stopCurrentAudio();
+    interruptCurrentLine();
+    postInterrupt().catch(() => {});
+  }, [stopCurrentAudio, interruptCurrentLine]);
+
+  useVoiceInput({
+    isAudioPlaying: false,
+    enabled: isAudioPlaying && !micMuted,
+    onSpeechStart: handleSpeechStart,
+  });
 
   // When the controls app submits a new question, stop old audio and restart
   // the passive loop immediately — don't wait for old TTS to finish playing.
@@ -207,7 +235,7 @@ function App() {
       )}
 
       <MicIndicator
-        micState={barge_in_active ? 'speaking' : 'idle'}
+        micState={micMuted ? 'idle' : (barge_in_active ? 'speaking' : 'idle')}
         interimTranscript=""
       />
     </main>
