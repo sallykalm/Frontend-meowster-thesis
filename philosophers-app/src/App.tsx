@@ -28,6 +28,8 @@ function App() {
     credits_open,
     hard_reset_seq,
     deactivate_talking_seq,
+    clear_history_seq,
+    clear_question_seq,
   } = useStatus(500);
 
   const {
@@ -46,6 +48,7 @@ function App() {
     triggerHardReset,
     deactivateTalking,
     resetForNewQuestion,
+    clearHistory,
     ragRelevanceMap,
   } = useDebate();
 
@@ -101,11 +104,37 @@ function App() {
     }
   }, [deactivate_talking_seq, deactivateTalking]);
 
+  // React to clear-history signal from controls
+  const prevClearHistoryRef = useRef(clear_history_seq);
+  useEffect(() => {
+    if (clear_history_seq !== prevClearHistoryRef.current) {
+      prevClearHistoryRef.current = clear_history_seq;
+      clearHistory();
+    }
+  }, [clear_history_seq, clearHistory]);
+
+  // React to clear-question signal from controls
+  const [questionHidden, setQuestionHidden] = useState(false);
+  const prevClearQuestionRef = useRef(clear_question_seq);
+  useEffect(() => {
+    if (clear_question_seq !== prevClearQuestionRef.current) {
+      prevClearQuestionRef.current = clear_question_seq;
+      setQuestionHidden(true);
+    }
+  }, [clear_question_seq]);
+
+  // Reset questionHidden when a new question arrives
+  useEffect(() => {
+    if (current_question) setQuestionHidden(false);
+  }, [current_question]);
+
   useEffect(() => {
     startPassiveLoop();
   // startPassiveLoop is stable (defined inside useDebate without dependencies)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const isPendingFirstResponse = !!question_id && !isDebating && !currentPhilosopher && !thinkingName;
 
   return (
     <main
@@ -135,7 +164,7 @@ function App() {
         </div>
       )}
 
-      {current_question && (
+      {current_question && !questionHidden && (
         <div className={styles.userQuestion}>
           Question:{' '}
           {questionRevision > 1 ? (
@@ -150,13 +179,19 @@ function App() {
         </div>
       )}
 
-      {isDebating && !awaitingAudienceInput && !thinkingName && !currentPhilosopher && !currentLine && (
+      {(isDebating || isPendingFirstResponse) && !awaitingAudienceInput && !thinkingName && !currentPhilosopher && !currentLine && (
         <div
           className={styles.deliberating}
           aria-live="polite"
           aria-label="Philosophers are thinking"
         >
           [ all thinkers are deliberating... ]
+        </div>
+      )}
+
+      {!isDebating && !isPendingFirstResponse && !awaitingAudienceInput && !thinkingName && !currentPhilosopher && (
+        <div className={styles.deliberating} aria-live="polite">
+          [ waiting for a new question... ]
         </div>
       )}
 

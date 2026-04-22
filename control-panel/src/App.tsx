@@ -19,6 +19,8 @@ import {
   postCreditsToggle,
   postDeactivateTalking,
   postRoundUp,
+  postClearHistory,
+  postClearQuestion,
 } from './api';
 import { BARGE_IN_SUBMIT_DELAY_MS, parseAddressedTo } from './constants';
 import styles from './App.module.css';
@@ -179,6 +181,8 @@ function App() {
       }
       if (e.key.toUpperCase() === 'V') setIsVoiceEnabled((v) => !v);
       if (e.key.toUpperCase() === 'C') void postCreditsToggle();
+      if (e.key.toUpperCase() === 'H') void postClearHistory();
+      if (e.key.toUpperCase() === 'Z') void postClearQuestion();
       if (e.key.toUpperCase() === 'D') void postDeactivateTalking();
       if (e.key.toUpperCase() === 'R') void postRoundUp();
       if (e.key.toUpperCase() === 'A') setBargeinMode((m) => (m === 'audience' ? 'live' : 'audience'));
@@ -354,6 +358,24 @@ function App() {
           >
             <div className={styles.gridBtnSymbol}>C</div>
             <div className={styles.gridBtnLabel}>CREDITS</div>
+          </button>
+
+          <button
+            className={styles.gridBtn}
+            onClick={() => void postClearHistory()}
+            title="Clear conversation history on display (shortcut: H)"
+          >
+            <div className={styles.gridBtnSymbol}>H</div>
+            <div className={styles.gridBtnLabel}>CLR HIST</div>
+          </button>
+
+          <button
+            className={styles.gridBtn}
+            onClick={() => void postClearQuestion()}
+            title="Clear question from display (shortcut: Z)"
+          >
+            <div className={styles.gridBtnSymbol}>Z</div>
+            <div className={styles.gridBtnLabel}>CLR Q</div>
           </button>
         </div>
 

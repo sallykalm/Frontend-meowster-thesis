@@ -32,6 +32,17 @@ function ragFilter(distance: number | null | undefined): string | undefined {
   return `brightness(${brightness}) saturate(${saturate})`;
 }
 
+function ragGlitchClass(
+  distance: number | null | undefined,
+  isActive: boolean,
+): string {
+  if (!isActive || distance == null) return '';
+  if (distance < 0.75) return styles.glitchIntense;
+  if (distance < 1.05) return styles.glitchMedium;
+  if (distance < 1.35) return styles.glitchSubtle;
+  return '';
+}
+
 /** Image sets that have animated GIF files available. */
 const GIF_SETS = new Set([1, 2, 4]);
 
@@ -64,12 +75,15 @@ const ImageGrid = ({
   return (
     <div className={styles.imageGrid} role="img" aria-label="Philosopher portraits">
       {philosophers.map((baseName) => {
-        const config = PHILOSOPHER_CONFIG[baseName]!;
+        const config = PHILOSOPHER_CONFIG[baseName];
         const isGif = isSomeoneTyping && typingPhilosopher === baseName && GIF_SETS.has(imageSet) && !isPaused;
         const extension = isGif ? 'gif' : 'png';
         const imgSrc = `/images/${config.filePrefix}${imageSet}.${extension}`;
         const isThinking = thinkingName === baseName && currentPhilosopher !== baseName;
         const isInterrupting = interruptingName === baseName && currentPhilosopher !== baseName;
+
+        const distance = ragRelevanceMap[baseName];
+        const glitchClass = ragGlitchClass(distance, isGif);
 
         return (
           <div className={styles.philosopherColumn} key={baseName}>
@@ -81,7 +95,8 @@ const ImageGrid = ({
               <img
                 src={imgSrc}
                 alt={config.displayName}
-                style={isGif ? { filter: ragFilter(ragRelevanceMap[baseName]) } : undefined}
+                className={glitchClass}
+                style={isGif ? { filter: ragFilter(distance) } : undefined}
               />
             </div>
             <div className={styles.philosopherLabel} style={{ color: COLORS[config.displayName] }}>

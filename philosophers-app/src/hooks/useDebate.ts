@@ -103,6 +103,7 @@ setPausePending: (val: boolean) => void;
   triggerHardReset: () => void;
   deactivateTalking: () => void;
   resetForNewQuestion: () => void;
+  clearHistory: () => void;
   ragRelevanceMap: Record<string, number | null>;
 }
 
@@ -296,10 +297,14 @@ export function useDebate(): UseDebateReturn {
 
     turnInterruptedRef.current = false;
 
-    if (data.subtitles?.length && data.audio_url) {
-      await processSubtitleTurn(data, signal);
-    } else {
-      await processTypewriterTurn(data, signal);
+    try {
+      if (data.subtitles?.length && data.audio_url) {
+        await processSubtitleTurn(data, signal);
+      } else {
+        await processTypewriterTurn(data, signal);
+      }
+    } finally {
+      setCurrentPhilosopher(null);
     }
   }
 
@@ -628,7 +633,14 @@ export function useDebate(): UseDebateReturn {
     setThinkingName(null);
     setInterruptingName(null);
     setIsDebating(false);
-    // finishedLines and submittedQuestion intentionally NOT cleared
+    setFinishedLines([]);
+    setCurrentLine(null);
+    setSubmittedQuestion('');
+  }
+
+  function clearHistory(): void {
+    setFinishedLines([]);
+    setCurrentLine(null);
   }
 
   /** Force all philosopher GIFs back to idle. Called when deactivate_talking_seq increments. */
@@ -718,9 +730,6 @@ export function useDebate(): UseDebateReturn {
           setThinkingName(null);
           setInterruptingName(null);
           setIsDebating(false);
-          setFinishedLines([]);
-          setCurrentLine(null);
-          setSubmittedQuestion('');
           setAudienceAwaiting(false);
           lastPhilosopher = null;
         }
@@ -763,6 +772,7 @@ export function useDebate(): UseDebateReturn {
     triggerHardReset,
     deactivateTalking,
     resetForNewQuestion,
+    clearHistory,
     ragRelevanceMap,
   };
 }

@@ -299,6 +299,24 @@ export async function postRoundUp(): Promise<void> {
   } catch { /* non-fatal */ }
 }
 
+export async function postClearHistory(): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}clear-history`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch { /* non-fatal */ }
+}
+
+export async function postClearQuestion(): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}clear-question`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch { /* non-fatal */ }
+}
+
 /** Clears the current question from the backend session. */
 export async function postImageSet(set: 1 | 2 | 3 | 4): Promise<void> {
   try {
