@@ -36,9 +36,9 @@ function ragGlitchClass(
   isActive: boolean,
 ): string {
   if (!isActive || distance == null) return '';
-  if (distance < 0.75) return styles.glitchIntense;
-  if (distance < 1.05) return styles.glitchMedium;
-  if (distance < 1.35) return styles.glitchSubtle;
+  if (distance < 0.55) return styles.glitchIntense;
+  if (distance < 0.6) return styles.glitchMedium;
+  if (distance < 0.75) return styles.glitchSubtle;
   return '';
 }
 
@@ -84,7 +84,7 @@ const ImageGrid = ({
             isUsingGif = true;
           } else if (isSpeaking && GIF_SETS.has(imageSet) && !isPaused) {
             const dist = ragRelevanceMap[baseName];
-            const useDistanceGif = dist != null && dist <= 0.5;
+            const useDistanceGif = dist != null && dist <= 0.8;
             imgSrc = useDistanceGif
               ? `/images/${config.filePrefix}1_distorted.gif`
               : `/images/${config.filePrefix}${imageSet}.gif`;

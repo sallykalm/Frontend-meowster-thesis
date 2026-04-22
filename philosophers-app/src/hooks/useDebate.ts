@@ -217,9 +217,10 @@ export function useDebate(): UseDebateReturn {
   async function sendLiveInstruction(instruction: string): Promise<string | null> {
     interruptCurrentLine();
     stopCurrentAudio();
-    // Discard any pre-fetched response — the next poll must get a fresh one
-    // generated with the instruction already in context.
+    // Discard any pre-fetched response and pre-started thinking state
     prefetchPromiseRef.current = null;
+    pendingAnswerDelayRef.current = null;
+    thinkingPreStartedRef.current = false;
     pendingAnswerDelayRef.current = null;
     thinkingPreStartedRef.current = false;
     const corrected = await postCorrectTranscript(
@@ -420,8 +421,15 @@ export function useDebate(): UseDebateReturn {
           const overlapMs = thinkingMs - delayMs;
 
           if (overlapMs > 0) {
-            const audioDuration = audio.duration;
-            const overlapStartTime = audioDuration - overlapMs / 1000;
+            // Use the exact audio duration from the JSON subtitles array instead of
+            // waiting for audio.duration metadata to load. The last subtitle word
+            // contains the precise audio end time.
+            const subtitlesList = data.subtitles || [];
+            const audioDurationSeconds = subtitlesList.length > 0
+              ? subtitlesList[subtitlesList.length - 1].end
+              : 0;
+
+            const overlapStartTime = Math.max(0, audioDurationSeconds - (overlapMs / 1000));
 
             const doPreStartThinking = () => {
               if (signal.aborted) return;
@@ -430,9 +438,10 @@ export function useDebate(): UseDebateReturn {
               setThinkingName(nextData.philosopher);
             };
 
-            if (!isNaN(audioDuration) && overlapStartTime > audio.currentTime) {
+            if (audioDurationSeconds > 0) {
               void waitForAudioTime(audio, overlapStartTime, signal).then(doPreStartThinking);
             } else {
+              // Fallback if subtitles array is completely missing
               doPreStartThinking();
             }
           }
@@ -658,6 +667,8 @@ export function useDebate(): UseDebateReturn {
     setIsAudienceQuestion(false);
     setAudienceAwaiting(false);
     prefetchPromiseRef.current = null;
+    pendingAnswerDelayRef.current = null;
+    thinkingPreStartedRef.current = false;
     pendingAnswerDelayRef.current = null;
     thinkingPreStartedRef.current = false;
 
