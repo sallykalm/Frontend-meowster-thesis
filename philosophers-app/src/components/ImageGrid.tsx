@@ -74,7 +74,11 @@ const ImageGrid = ({
             imgSrc = `/images/${config.filePrefix}1_thinking.gif`;
             isUsingGif = true;
           } else if (isSpeaking && GIF_SETS.has(imageSet) && !isPaused) {
-            imgSrc = `/images/${config.filePrefix}${imageSet}.gif`;
+            const dist = ragRelevanceMap[baseName];
+            const useDistanceGif = dist != null && dist <= 0.5;
+            imgSrc = useDistanceGif
+            ? `/images/${config.filePrefix}1_distorted.gif`
+            : `/images/${config.filePrefix}${imageSet}.gif`;
             isUsingGif = true;
           } else {
             imgSrc = `/images/${config.filePrefix}${imageSet}.png`;

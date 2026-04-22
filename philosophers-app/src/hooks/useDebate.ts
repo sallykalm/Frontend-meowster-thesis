@@ -1,10 +1,11 @@
 import { useState, useRef } from 'react';
 import { submitQuestion, getNextResponse, clearQuestion, submitAudienceQuestion, postLiveInstruction, postCorrectTranscript } from '../api';
 import type { ApiResponse } from '../api';
-import { BASE_URL, MAX_LINE_LENGTH, SUBTITLE_CLEAR_DELAY_MS, THINKING_DELAY_MS, FINISHED_LINES_KEPT } from '../constants';
+import { BASE_URL, MAX_LINE_LENGTH, SUBTITLE_CLEAR_DELAY_MS, FINISHED_LINES_KEPT } from '../constants';
 import type { ChatMessage, SubtitleChunk } from '../types';
 import { chunkSubtitleText } from '../utils/subtitleChunker';
 import { mapChunksToTimings } from '../utils/mapChunksToTimings';
+import { computeThinkingTime, computeAnswerDelay } from '../utils/distanceUtils';
 
 /** Splits text into lines no longer than maxLen characters, breaking at word boundaries. */
 export function formatLines(text: string, maxLen = MAX_LINE_LENGTH): string[] {
@@ -132,6 +133,12 @@ export function useDebate(): UseDebateReturn {
   // line of a philosopher's turn so the typewriter can be interrupted early.
   const prefetchPromiseRef = useRef<Promise<ApiResponse | null> | null>(null);
 
+  // Feature 3+4: when the next philosopher's thinking was pre-started during
+  // the current audio, these refs carry the state into processPhilosopherTurn
+  // so it skips re-starting thinking and only waits the dead-air portion.
+  const pendingAnswerDelayRef = useRef<number | null>(null);
+  const thinkingPreStartedRef = useRef<boolean>(false);
+
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioResolveRef = useRef<(() => void) | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
@@ -212,6 +219,8 @@ export function useDebate(): UseDebateReturn {
     // Discard any pre-fetched response — the next poll must get a fresh one
     // generated with the instruction already in context.
     prefetchPromiseRef.current = null;
+    pendingAnswerDelayRef.current = null;
+    thinkingPreStartedRef.current = false;
     const corrected = await postCorrectTranscript(
       instruction,
       submittedQuestion,
@@ -266,14 +275,28 @@ export function useDebate(): UseDebateReturn {
         if (signal.aborted) return;
         setInterruptingName(null);
       } else {
-        setThinkingName(data.philosopher);
-        await new Promise<void>((res) => {
-          const t = setTimeout(res, THINKING_DELAY_MS);
-          signal.addEventListener('abort', () => {
-            clearTimeout(t);
-            res();
-          }, { once: true });
-        });
+        const answerDelayMs = pendingAnswerDelayRef.current ?? computeAnswerDelay(data.rag_relevance ?? 1.5);
+        pendingAnswerDelayRef.current = null;
+
+        const thinkingWasPreStarted = thinkingPreStartedRef.current;
+        thinkingPreStartedRef.current = false;
+
+        if (!thinkingWasPreStarted) {
+          const thinkingMs = computeThinkingTime(data.rag_relevance ?? 1.5);
+          setThinkingName(data.philosopher);
+          await new Promise<void>((res) => {
+            const t = setTimeout(res, thinkingMs);
+            signal.addEventListener('abort', () => { clearTimeout(t); res(); }, { once: true });
+          });
+        } else {
+          // Thinking GIF was pre-started during previous audio — only sleep the dead-air portion.
+          setThinkingName(data.philosopher);
+          await new Promise<void>((res) => {
+            const t = setTimeout(res, answerDelayMs);
+            signal.addEventListener('abort', () => { clearTimeout(t); res(); }, { once: true });
+          });
+        }
+
         if (signal.aborted) return;
         setThinkingName(null);
       }
@@ -378,6 +401,38 @@ export function useDebate(): UseDebateReturn {
             doCut();
           }
         }
+
+        // Feature 4: pre-start thinking for the next philosopher during current audio
+        if (
+          nextData &&
+          nextData.turn_type !== 'interruption' &&
+          nextData.philosopher !== data.philosopher &&
+          nextData.philosopher !== 'SYSTEM'
+        ) {
+          const dist = nextData.rag_relevance ?? 1.5;
+          const thinkingMs = computeThinkingTime(dist);
+          const delayMs = computeAnswerDelay(dist);
+          const overlapMs = thinkingMs - delayMs;
+
+          if (overlapMs > 0) {
+            const audioDuration = audio.duration;
+            const overlapStartTime = audioDuration - overlapMs / 1000;
+
+            const doPreStartThinking = () => {
+              if (signal.aborted) return;
+              thinkingPreStartedRef.current = true;
+              pendingAnswerDelayRef.current = delayMs;
+              setThinkingName(nextData.philosopher);
+            };
+
+            if (!isNaN(audioDuration) && overlapStartTime > audio.currentTime) {
+              void waitForAudioTime(audio, overlapStartTime, signal).then(doPreStartThinking);
+            } else {
+              doPreStartThinking();
+            }
+          }
+        }
+
         return nextData;
       });
     }
@@ -472,6 +527,26 @@ export function useDebate(): UseDebateReturn {
               // and it would otherwise finish naturally after the text stops.
               stopCurrentAudio();
             }
+
+            // Feature 4 (typewriter): pre-start thinking immediately since we're on the last line
+            if (
+              nextData &&
+              nextData.turn_type !== 'interruption' &&
+              nextData.philosopher !== data.philosopher &&
+              nextData.philosopher !== 'SYSTEM'
+            ) {
+              const dist = nextData.rag_relevance ?? 1.5;
+              const thinkingMs = computeThinkingTime(dist);
+              const delayMs = computeAnswerDelay(dist);
+              const overlapMs = thinkingMs - delayMs;
+
+              if (overlapMs > 0 && !signal.aborted) {
+                thinkingPreStartedRef.current = true;
+                pendingAnswerDelayRef.current = delayMs;
+                setThinkingName(nextData.philosopher);
+              }
+            }
+
             return nextData;
           });
         }
@@ -578,6 +653,8 @@ export function useDebate(): UseDebateReturn {
     setIsAudienceQuestion(false);
     setAudienceAwaiting(false);
     prefetchPromiseRef.current = null;
+    pendingAnswerDelayRef.current = null;
+    thinkingPreStartedRef.current = false;
 
     if (subtitleClearTimerRef.current !== null) {
       clearTimeout(subtitleClearTimerRef.current);
@@ -624,6 +701,8 @@ export function useDebate(): UseDebateReturn {
     setCurrentLine((prev) => (prev ? { ...prev, interrupted: true } : prev));
     if (abortRef.current) abortRef.current.abort();
     prefetchPromiseRef.current = null;
+    pendingAnswerDelayRef.current = null;
+    thinkingPreStartedRef.current = false;
     setCurrentPhilosopher(null);
     setThinkingName(null);
     setInterruptingName(null);
@@ -647,6 +726,8 @@ export function useDebate(): UseDebateReturn {
   function resetForNewQuestion(): void {
     stopCurrentAudio();
     prefetchPromiseRef.current = null;
+    pendingAnswerDelayRef.current = null;
+    thinkingPreStartedRef.current = false;
     turnInterruptedRef.current = false;
     setCurrentLine(null);
     setCurrentPhilosopher(null);
