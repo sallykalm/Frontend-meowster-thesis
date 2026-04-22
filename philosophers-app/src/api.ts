@@ -140,6 +140,9 @@ export async function getNextResponse(debateSignal?: AbortSignal): Promise<ApiRe
 
       const data = await response.json() as ApiResponse;
 
+      // MOCK: remove when backend sends rag_relevance natively
+      if (data.rag_relevance == null) data.rag_relevance = Math.random() * (1.5 - 0.1) + 0.1;
+
       // Allow the awaiting_audience_input sentinel through.
       const isSentinel = data.turn_type === 'awaiting_audience_input';
       if (!data.philosopher || (!data.text && !isSentinel)) {

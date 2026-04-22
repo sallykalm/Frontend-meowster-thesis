@@ -166,7 +166,7 @@ function App() {
 
       {current_question && !questionHidden && (
         <div className={styles.userQuestion}>
-          Question:{' '}
+          {' '}
           {questionRevision > 1 ? (
             <Typewriter
               key={String(questionRevision)}

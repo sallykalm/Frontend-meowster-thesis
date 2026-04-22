@@ -2,14 +2,14 @@
 export const COLORS: Record<string, string> = {
   "Flusser-AI": "#FA4616",
   "Weizenbaum-AI": "#97D700",
-  "Virilio-AI": "#E0E721",
+  "Virilio-AI": "#fff627",
   "Weibel-AI": "#8DC8E8",
   "System": "#FFFFFF",
 };
 
 export const PHILOSOPHER_CONFIG: Record<string, { displayName: string, filePrefix: string }> = {
-  "Weizenbaum": { displayName: "Weizenbaum-AI", filePrefix: "weizenbaum" },  
   "Flusser": { displayName: "Flusser-AI", filePrefix: "flusser" },
+  "Weizenbaum": { displayName: "Weizenbaum-AI", filePrefix: "weizenbaum" },  
   "Weibel": { displayName: "Weibel-AI", filePrefix: "weibel" },
   "Virilio": { displayName: "Virilio-AI", filePrefix: "virilio" },
   "Moderator": { displayName: "System", filePrefix: "moderator" }
