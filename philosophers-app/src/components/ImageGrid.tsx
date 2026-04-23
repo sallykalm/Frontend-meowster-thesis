@@ -21,6 +21,7 @@ interface ImageGridProps {
   currentPhilosopher: string | null;
   isPaused?: boolean;
   ragRelevanceMap?: Record<string, number | null>;
+  allThinking?: boolean;
 }
 
 function ragFilter(distance: number | null | undefined): string | undefined {
@@ -53,6 +54,7 @@ const ImageGrid = ({
   currentPhilosopher,
   isPaused = false,
   ragRelevanceMap = {},
+  allThinking = false,
 }: ImageGridProps) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -79,7 +81,8 @@ const ImageGrid = ({
 
         if (imageSet === 1) {
           // Image Set 1: Use thinking GIF when thinking, speaking GIF when speaking
-          if (isThinking && !isPaused) {
+          const isEffectivelyThinking = (isThinking || allThinking) && !isPaused;
+          if (isEffectivelyThinking) {
             imgSrc = `/images/${config.filePrefix}1_thinking.gif`;
             isUsingGif = true;
           } else if (isSpeaking && GIF_SETS.has(imageSet) && !isPaused) {

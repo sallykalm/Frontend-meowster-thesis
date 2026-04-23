@@ -94,16 +94,18 @@ interface UseDebateReturn {
   subtitleChunk: SubtitleChunk | null;
   stopCurrentAudio: () => void;
   interruptCurrentLine: () => void;
+  setTtsMuted: (muted: boolean) => void;
   sendLiveInstruction: (instruction: string) => Promise<string | null>;
   startDebate: (question: string, isVoiceEnabled?: boolean) => Promise<void>;
   startPassiveLoop: () => void;
   abortDebate: () => void;
   resolveQuestionTypewriter: () => void;
   handleAudienceQuestion: (question: string, addressedTo: string[], isFollowup: boolean) => Promise<void>;
-setPausePending: (val: boolean) => void;
+  setPausePending: (val: boolean) => void;
   triggerHardReset: () => void;
   deactivateTalking: () => void;
   resetForNewQuestion: () => void;
+  clearPrefetch: () => void;
   clearHistory: () => void;
   ragRelevanceMap: Record<string, number | null>;
 }
@@ -140,6 +142,15 @@ export function useDebate(): UseDebateReturn {
   const pendingAnswerDelayRef = useRef<number | null>(null);
   const thinkingPreStartedRef = useRef<boolean>(false);
 
+  const ttsMutedRef = useRef(false);
+
+  function setTtsMuted(muted: boolean): void {
+    if (muted && !ttsMutedRef.current) {
+      stopCurrentAudio();
+    }
+    ttsMutedRef.current = muted;
+  }
+
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioResolveRef = useRef<(() => void) | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
@@ -165,6 +176,7 @@ export function useDebate(): UseDebateReturn {
   }
 
   function playAudioTracked(url: string): Promise<void> {
+    if (ttsMutedRef.current) return Promise.resolve();
     const audioSrc = BASE_URL.startsWith('http')
       ? `${new URL(BASE_URL).origin}${url}`
       : url;
@@ -733,6 +745,11 @@ export function useDebate(): UseDebateReturn {
     setCurrentLine(null);
   }
 
+  /** Discard any pre-fetched next-response so barge-in doesn't serve a stale turn. */
+  function clearPrefetch(): void {
+    prefetchPromiseRef.current = null;
+  }
+
   /** Force all philosopher GIFs back to idle. Called when deactivate_talking_seq increments. */
   function deactivateTalking(): void {
     setCurrentPhilosopher(null);
@@ -824,6 +841,7 @@ export function useDebate(): UseDebateReturn {
           setIsDebating(false);
           setAudienceAwaiting(false);
           lastPhilosopher = null;
+          continue; // loop stays alive; polls idle (404 → 5 s sleep) until next debate
         }
       }
     };
@@ -854,6 +872,7 @@ export function useDebate(): UseDebateReturn {
     subtitleChunk,
     stopCurrentAudio,
     interruptCurrentLine,
+    setTtsMuted,
     sendLiveInstruction,
     startDebate,
     startPassiveLoop,
@@ -864,6 +883,7 @@ export function useDebate(): UseDebateReturn {
     triggerHardReset,
     deactivateTalking,
     resetForNewQuestion,
+    clearPrefetch,
     clearHistory,
     ragRelevanceMap,
   };

@@ -21,6 +21,10 @@ import {
   postRoundUp,
   postClearHistory,
   postClearQuestion,
+  postToggleTtsMute,
+  postClassifyBargein,
+  postLiveInstruction,
+  postBoot,
 } from './api';
 import { BARGE_IN_SUBMIT_DELAY_MS, parseAddressedTo } from './constants';
 import styles from './App.module.css';
@@ -31,12 +35,9 @@ function App() {
   const [userQuestion, setUserQuestion] = useState('');
   const [submittedQuestion, setSubmittedQuestion] = useState('');
   const [isFastForwarding, setIsFastForwarding] = useState(false);
-  const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
-  const [isButtonsVisible, setIsButtonsVisible] = useState(false);
   const [isTtsEnabled, setIsTtsEnabled] = useState(false);
   const [bargeinEnabled, setBargeinEnabled] = useState(true);
   const [micMuted, setMicMuted] = useState(true);
-  const [bargeinMode, setBargeinMode] = useState<'moderator' | 'audience' | 'live'>('live');
   const [liveInstructions, setLiveInstructions] = useState<string[]>([]);
   const [isPreparingQuestion, setIsPreparingQuestion] = useState(false);
   const [bargeinTranscript, setBargeinTranscript] = useState('');
@@ -48,11 +49,13 @@ function App() {
 
   const status = useStatus();
   const isDebating = status.active;
+  const isDebatingRef = useRef(isDebating);
+  useEffect(() => { isDebatingRef.current = isDebating; }, [isDebating]);
   const awaitingAudienceInput = status.awaiting_audience_input;
   const isPausePending = status.is_pause_pending;
   const isRoundUpPending = status.is_round_up_pending;
 
-  const { error, startDebate, abortDebate, sendLiveInstruction, handleAudienceQuestion } = useDebate();
+  const { error, startDebate, abortDebate, handleAudienceQuestion } = useDebate();
 
   useEffect(() => {
     if (!isDebating) {
@@ -87,42 +90,61 @@ function App() {
   const dotCount = useDotAnimation(isListening && !transcript.trim());
 
   const handleBargeinSpeechStart = useCallback((): void => {
-    postInterrupt().catch(() => {});
+    if (isDebatingRef.current) {
+      postInterrupt().catch(() => {});
+    }
   }, []);
 
   const handleBargeinTranscript = useCallback((text: string): void => {
     const raw = text.trim();
     if (!raw || raw.split(/\s+/).length < 3) return;
 
-    if (bargeinMode === 'live') {
-      void (async () => {
-        const accepted = await sendLiveInstruction(
-          raw,
-          submittedQuestionRef.current,
-          null,
-        ).catch(() => null);
-        if (accepted) setLiveInstructions([accepted]);
-      })();
-    } else {
-      void abortDebate();
-      setBargeinTranscript('');
-      setLiveInstructions([]);
-      setIsPreparingQuestion(true);
-      postCorrectTranscript(raw, submittedQuestionRef.current, null)
-        .then((corrected: string) => {
-          setIsPreparingQuestion(false);
-          void startDebate(corrected, isVoiceEnabled);
-        })
-        .catch(() => {
-          setIsPreparingQuestion(false);
-          void startDebate(raw, isVoiceEnabled);
-        });
-    }
-  }, [bargeinMode, sendLiveInstruction, abortDebate, startDebate, isVoiceEnabled]);
+    void (async () => {
+      const classification = await postClassifyBargein(raw, submittedQuestionRef.current);
+
+      if (!classification || classification.likely_echo) return;
+
+      const { type, corrected_text, question_part, instruction_part } = classification;
+
+      if (!isDebatingRef.current) {
+        // Idle mode: treat all speech as a new question, no abort needed
+        const q = question_part ?? corrected_text;
+        setSubmittedQuestion(q);
+        submittedQuestionRef.current = q;
+        setLiveInstructions([]);
+        void startDebate(q, true);
+        return;
+      }
+
+      if (type === 'question') {
+        const q = question_part ?? corrected_text;
+        await abortDebate();
+        setSubmittedQuestion(q);
+        submittedQuestionRef.current = q;
+        setLiveInstructions([]);
+        setIsPreparingQuestion(false);
+        void startDebate(q, true);
+
+      } else if (type === 'instruction') {
+        const accepted = await postLiveInstruction(
+          instruction_part ?? corrected_text,
+          corrected_text,
+        );
+        if (accepted) setLiveInstructions([corrected_text]);
+
+      } else {
+        // 'both': inject as live instruction, show question part in pink box
+        const displayText = question_part ?? corrected_text;
+        const instructionText = instruction_part ?? corrected_text;
+        const accepted = await postLiveInstruction(instructionText, displayText);
+        if (accepted) setLiveInstructions([displayText]);
+      }
+    })();
+  }, [abortDebate, startDebate]);
 
   const { micState, interimTranscript } = useVoiceInput({
     isAudioPlaying: false,
-    enabled: bargeinEnabled && !micMuted && isDebating && !awaitingAudienceInput && !isListening,
+    enabled: bargeinEnabled && !micMuted && !awaitingAudienceInput && !isListening,
     onSpeechStart: handleBargeinSpeechStart,
     onTranscriptReady: handleBargeinTranscript,
   });
@@ -145,7 +167,7 @@ function App() {
     setBargeinTranscript('');
     setLiveInstructions([]);
     setUserQuestion('');
-    void startDebate(q, isVoiceEnabled);
+    void startDebate(q, true);
   }
 
   function handleHardReset(): void {
@@ -179,15 +201,14 @@ function App() {
         setIsFastForwarding(true);
         void postFastForward(true);
       }
-      if (e.key.toUpperCase() === 'V') setIsVoiceEnabled((v) => !v);
+      if (e.key.toUpperCase() === 'V') void postToggleTtsMute();
       if (e.key.toUpperCase() === 'C') void postCreditsToggle();
       if (e.key.toUpperCase() === 'H') void postClearHistory();
       if (e.key.toUpperCase() === 'Z') void postClearQuestion();
       if (e.key.toUpperCase() === 'D') void postDeactivateTalking();
-      if (e.key.toUpperCase() === 'R') void postRoundUp();
-      if (e.key.toUpperCase() === 'A') setBargeinMode((m) => (m === 'audience' ? 'live' : 'audience'));
-      if (e.key.toUpperCase() === 'M') setBargeinMode((m) => (m === 'moderator' ? 'live' : 'moderator'));
+      if (e.key.toUpperCase() === 'R' && isDebating) void postRoundUp();
       if (e.key.toUpperCase() === 'X') setMicMuted((m) => !m);
+      if (e.key.toUpperCase() === 'B') void postBoot();
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -199,8 +220,8 @@ function App() {
           const raw = transcript.trim();
           if (raw) {
             postCorrectTranscript(raw, submittedQuestionRef.current, null)
-              .then((corrected: string) => { void startDebate(corrected, isVoiceEnabled); })
-              .catch(() => { void startDebate(raw, isVoiceEnabled); });
+              .then((corrected: string) => { void startDebate(corrected, true); })
+              .catch(() => { void startDebate(raw, true); });
             resetVoice();
           }
         }, 100);
@@ -220,7 +241,7 @@ function App() {
   }, [
     isListening, isDebating, transcript,
     startVoice, stopVoice, resetVoice, abortDebate,
-    isVoiceEnabled, awaitingAudienceInput, isTtsEnabled,
+    awaitingAudienceInput, isTtsEnabled,
   ]);
 
   const statusClass = isDebating
@@ -264,7 +285,6 @@ function App() {
       {/* Hints — directly below input */}
       <div className={styles.hints}>
         <span>Hold F to speed up (no voice)</span>
-        <span>VOICE: {isVoiceEnabled ? 'ON' : 'OFF'}</span>
         <span>Hold SPACE to record a question</span>
       </div>
 
@@ -289,50 +309,14 @@ function App() {
         {/* Row 2: Toggles */}
         <div className={styles.buttonRow}>
           <button
-            className={`${styles.gridBtn} ${isVoiceEnabled ? styles.gridBtnActiveGreen : ''}`}
-            onClick={() => setIsVoiceEnabled((v) => !v)}
-            title={`Voice ${isVoiceEnabled ? 'ON' : 'OFF'} (shortcut: V)`}
+            className={`${styles.gridBtn} ${status.tts_muted ? styles.gridBtnActiveRed : styles.gridBtnActiveGreen}`}
+            onClick={() => void postToggleTtsMute()}
+            title="Mute/unmute TTS audio output (shortcut: V)"
           >
             <div className={styles.gridBtnSymbol}>V</div>
             <div className={styles.gridBtnLabel}>VOICE</div>
-            <div className={`${styles.gridBtnStatus} ${isVoiceEnabled ? styles.gridBtnStatusGreen : styles.gridBtnStatusRed}`}>
-              {isVoiceEnabled ? 'ON' : 'OFF'}
-            </div>
-          </button>
-
-          <button
-            className={`${styles.gridBtn} ${isButtonsVisible ? styles.gridBtnActiveWhite : ''}`}
-            onClick={() => setIsButtonsVisible((v) => !v)}
-            title="Toggle input buttons visibility (shortcut: B)"
-          >
-            <div className={styles.gridBtnSymbol}>B</div>
-            <div className={styles.gridBtnLabel}>HIDE</div>
-            <div className={`${styles.gridBtnStatus} ${isButtonsVisible ? styles.gridBtnStatusGreen : styles.gridBtnStatusDim}`}>
-              {isButtonsVisible ? 'ON' : 'OFF'}
-            </div>
-          </button>
-
-          <button
-            className={`${styles.gridBtn} ${bargeinMode === 'audience' ? styles.gridBtnActiveWhite : ''}`}
-            onClick={() => setBargeinMode((m) => (m === 'audience' ? 'live' : 'audience'))}
-            title="Barge-in submits as audience question (shortcut: A)"
-          >
-            <div className={styles.gridBtnSymbol}>A</div>
-            <div className={styles.gridBtnLabel}>AUD Q</div>
-            <div className={`${styles.gridBtnStatus} ${bargeinMode === 'audience' ? styles.gridBtnStatusGreen : styles.gridBtnStatusDim}`}>
-              {bargeinMode === 'audience' ? 'ON' : 'OFF'}
-            </div>
-          </button>
-
-          <button
-            className={`${styles.gridBtn} ${bargeinMode === 'moderator' ? styles.gridBtnActiveWhite : ''}`}
-            onClick={() => setBargeinMode((m) => (m === 'moderator' ? 'live' : 'moderator'))}
-            title="Barge-in restarts debate with moderator question (shortcut: M)"
-          >
-            <div className={styles.gridBtnSymbol}>M</div>
-            <div className={styles.gridBtnLabel}>MOD Q</div>
-            <div className={`${styles.gridBtnStatus} ${bargeinMode === 'moderator' ? styles.gridBtnStatusGreen : styles.gridBtnStatusDim}`}>
-              {bargeinMode === 'moderator' ? 'ON' : 'OFF'}
+            <div className={`${styles.gridBtnStatus} ${status.tts_muted ? styles.gridBtnStatusRed : styles.gridBtnStatusGreen}`}>
+              {status.tts_muted ? 'MUTED' : 'ON'}
             </div>
           </button>
 
@@ -377,6 +361,15 @@ function App() {
             <div className={styles.gridBtnSymbol}>Z</div>
             <div className={styles.gridBtnLabel}>CLR Q</div>
           </button>
+
+          <button
+            className={styles.gridBtn}
+            onClick={() => void postBoot()}
+            title="Trigger boot animation on display (shortcut: B)"
+          >
+            <div className={styles.gridBtnSymbol}>B</div>
+            <div className={styles.gridBtnLabel}>BOOT</div>
+          </button>
         </div>
 
         {/* Row 4: Playback */}
@@ -413,6 +406,7 @@ function App() {
           <button
             className={`${styles.gridBtn} ${isRoundUpPending ? styles.gridBtnActiveBlue : ''}`}
             onClick={() => void postRoundUp()}
+            disabled={!isDebating}
             title="Round up — Weibel closes with summary (shortcut: R)"
           >
             <div className={styles.gridBtnSymbol}>R</div>

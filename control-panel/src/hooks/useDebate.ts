@@ -11,19 +11,12 @@ import {
   submitQuestion,
   clearQuestion,
   submitAudienceQuestion,
-  postLiveInstruction,
-  postCorrectTranscript,
 } from '../api';
 
 interface UseDebateReturn {
   error: string | null;
   startDebate: (question: string, isVoiceEnabled?: boolean) => Promise<void>;
   abortDebate: () => Promise<void>;
-  sendLiveInstruction: (
-    instruction: string,
-    contextQuestion?: string,
-    recentSpeaker?: string | null,
-  ) => Promise<string | null>;
   handleAudienceQuestion: (
     question: string,
     addressedTo: string[],
@@ -46,19 +39,6 @@ export function useDebate(): UseDebateReturn {
     await clearQuestion();
   }
 
-  async function sendLiveInstruction(
-    instruction: string,
-    contextQuestion: string = '',
-    recentSpeaker: string | null = null,
-  ): Promise<string | null> {
-    const corrected = await postCorrectTranscript(
-      instruction,
-      contextQuestion,
-      recentSpeaker,
-    ).catch(() => instruction);
-    return postLiveInstruction(corrected);
-  }
-
   async function handleAudienceQuestion(
     question: string,
     addressedTo: string[],
@@ -69,5 +49,5 @@ export function useDebate(): UseDebateReturn {
     else setError(null);
   }
 
-  return { error, startDebate, abortDebate, sendLiveInstruction, handleAudienceQuestion };
+  return { error, startDebate, abortDebate, handleAudienceQuestion };
 }

@@ -135,8 +135,8 @@ export async function getNextResponse(debateSignal?: AbortSignal): Promise<ApiRe
 
       const data = await response.json() as ApiResponse;
 
-      // Allow the awaiting_audience_input sentinel through.
-      const isSentinel = data.turn_type === 'awaiting_audience_input';
+      // Allow sentinels (audience input pause, debate-end is_last) through even with empty text.
+      const isSentinel = data.turn_type === 'awaiting_audience_input' || data.is_last;
       if (!data.philosopher || (!data.text && !isSentinel)) {
         throw new Error('Invalid response: missing required fields');
       }
@@ -197,19 +197,49 @@ export async function submitAudienceQuestion(
 
 /**
  * Posts a live moderator instruction to the running debate.
+ * displayText, if provided, is shown in the pink question box on the display.
  * Returns the corrected instruction text, or null on failure.
  */
-export async function postLiveInstruction(instruction: string): Promise<string | null> {
+export async function postLiveInstruction(
+  instruction: string,
+  displayText: string = '',
+): Promise<string | null> {
   try {
     const response = await fetch(`${BASE_URL}live-instruction`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ instruction }),
+      body: JSON.stringify({ instruction, display_text: displayText }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) return null;
     const data = await response.json() as { accepted: boolean; corrected: string };
     return data.accepted ? data.corrected : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface BargeInClassification {
+  type: 'question' | 'instruction' | 'both';
+  corrected_text: string;
+  question_part: string | null;
+  instruction_part: string | null;
+  likely_echo: boolean;
+}
+
+export async function postClassifyBargein(
+  text: string,
+  contextQuestion: string = '',
+): Promise<BargeInClassification | null> {
+  try {
+    const response = await fetch(`${BASE_URL}classify-bargein`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, context_question: contextQuestion }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    return await response.json() as BargeInClassification;
   } catch {
     return null;
   }
@@ -317,6 +347,20 @@ export async function postClearQuestion(): Promise<void> {
   } catch { /* non-fatal */ }
 }
 
+export async function postToggleTtsMute(): Promise<boolean | null> {
+  try {
+    const response = await fetch(`${BASE_URL}toggle-tts-mute`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    const data = await response.json() as { tts_muted: boolean };
+    return data.tts_muted;
+  } catch {
+    return null;
+  }
+}
+
 /** Clears the current question from the backend session. */
 export async function postImageSet(set: 1 | 2 | 3 | 4): Promise<void> {
   try {
@@ -340,4 +384,13 @@ export async function clearQuestion(): Promise<void> {
   } catch (error) {
     console.error('Error clearing question:', error);
   }
+}
+
+export async function postBoot(): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}boot`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch { /* non-fatal */ }
 }

@@ -2,14 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import BootScreen from './components/BootScreen';
 import Credits from './components/Credits';
 import DiscussionLog from './components/DiscussionLog';
-import MicIndicator from './components/MicIndicator';
 import SubtitleView from './components/SubtitleView';
 import Typewriter from './components/Typewriter';
 import ImageGrid from './components/ImageGrid';
 import { useDebate } from './hooks/useDebate';
 import { useStatus } from './hooks/useStatus';
-import { useVoiceInput } from './hooks/useVoiceInput';
-import { postInterrupt } from './api';
 import { BASE_URL } from './constants';
 import styles from './App.module.css';
 import './App.css';
@@ -22,6 +19,7 @@ function App() {
 
   const {
     barge_in_active,
+    bargein_display_text,
     image_set,
     current_question,
     question_id,
@@ -32,7 +30,8 @@ function App() {
     deactivate_talking_seq,
     clear_history_seq,
     clear_question_seq,
-  } = useStatus(500);
+    tts_muted,
+  } = useStatus(150);
 
   const {
     finishedLines,
@@ -43,9 +42,10 @@ function App() {
     isDebating,
     error,
     awaitingAudienceInput,
-    isAudioPlaying,
     stopCurrentAudio,
     interruptCurrentLine,
+    clearPrefetch,
+    setTtsMuted,
     subtitleChunk,
     resolveQuestionTypewriter,
     startPassiveLoop,
@@ -56,29 +56,6 @@ function App() {
     clearHistory,
     ragRelevanceMap,
   } = useDebate();
-
-  const [micMuted, setMicMuted] = useState(true);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === 'INPUT') return;
-      if (e.key.toUpperCase() === 'X') setMicMuted((m) => !m);
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const handleSpeechStart = useCallback(() => {
-    stopCurrentAudio();
-    interruptCurrentLine();
-    postInterrupt().catch(() => {});
-  }, [stopCurrentAudio, interruptCurrentLine]);
-
-  useVoiceInput({
-    isAudioPlaying: false,
-    enabled: isAudioPlaying && !micMuted,
-    onSpeechStart: handleSpeechStart,
-  });
 
   // When the controls app submits a new question, stop old audio and restart
   // the passive loop immediately — don't wait for old TTS to finish playing.
@@ -108,6 +85,35 @@ function App() {
       setQuestionRevision((r) => r + 1);
     }
   }, [current_question]);
+
+  // Rising edge of barge_in_active → stop audio + typewriter + discard prefetch immediately
+  const prevBargeinActiveRef = useRef(false);
+  useEffect(() => {
+    if (barge_in_active && !prevBargeinActiveRef.current) {
+      stopCurrentAudio();
+      interruptCurrentLine();
+      clearPrefetch();
+    }
+    prevBargeinActiveRef.current = barge_in_active;
+  }, [barge_in_active, stopCurrentAudio, interruptCurrentLine, clearPrefetch]);
+
+  // Track bargein_display_text changes for typewriter animation in the pink box
+  const [bargeinDisplayRevision, setBargeinDisplayRevision] = useState(0);
+  const prevBargeinDisplayRef = useRef('');
+  useEffect(() => {
+    if (bargein_display_text && bargein_display_text !== prevBargeinDisplayRef.current) {
+      prevBargeinDisplayRef.current = bargein_display_text;
+      setBargeinDisplayRevision((r) => r + 1);
+    }
+    if (!bargein_display_text) {
+      prevBargeinDisplayRef.current = '';
+    }
+  }, [bargein_display_text]);
+
+  // Sync TTS mute flag into the debate hook (stops audio immediately when muted)
+  useEffect(() => {
+    setTtsMuted(tts_muted);
+  }, [tts_muted, setTtsMuted]);
 
   // Sync soft-pause flag into the passive loop
   useEffect(() => {
@@ -156,6 +162,39 @@ function App() {
     if (current_question) setQuestionHidden(false);
   }, [current_question]);
 
+  // React to boot signal from controls — re-show the boot animation.
+  // Self-contained poll: uses a local closure variable so React state/ref
+  // propagation timing cannot swallow the change.
+  useEffect(() => {
+    let prevSeq = -1;
+    let cancelled = false;
+
+    const checkBoot = async (): Promise<void> => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(`${BASE_URL}status`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (cancelled || !res.ok) return;
+        const data = await res.json() as { boot_seq?: number };
+        const seq = typeof data.boot_seq === 'number' ? data.boot_seq : -1;
+        if (seq >= 0) {
+          if (prevSeq >= 0 && seq !== prevSeq) {
+            setIsBooting(true);
+          }
+          prevSeq = seq;
+        }
+      } catch { /* ignore */ }
+    };
+
+    void checkBoot();
+    const id = setInterval(() => void checkBoot(), 500);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
   useEffect(() => {
     startPassiveLoop();
   // startPassiveLoop is stable (defined inside useDebate without dependencies)
@@ -163,6 +202,13 @@ function App() {
   }, []);
 
   const isPendingFirstResponse = !!question_id && !isDebating && !currentPhilosopher && !thinkingName;
+
+  const allThinking =
+    (isDebating || isPendingFirstResponse) &&
+    !awaitingAudienceInput &&
+    !thinkingName &&
+    !currentPhilosopher &&
+    !currentLine;
 
   return (
     <main
@@ -184,6 +230,7 @@ function App() {
         currentPhilosopher={currentPhilosopher}
         isPaused={false}
         ragRelevanceMap={ragRelevanceMap}
+        allThinking={allThinking}
       />
 
       {error && (
@@ -192,30 +239,25 @@ function App() {
         </div>
       )}
 
-      {current_question && !questionHidden && (
-        <div className={styles.userQuestion}>
-          {' '}
-          {questionRevision > 1 ? (
-            <Typewriter
-              key={String(questionRevision)}
-              text={current_question}
-              onComplete={resolveQuestionTypewriter}
-            />
-          ) : (
-            current_question
-          )}
-        </div>
-      )}
-
-      {(isDebating || isPendingFirstResponse) && !awaitingAudienceInput && !thinkingName && !currentPhilosopher && !currentLine && (
-        <div
-          className={styles.deliberating}
-          aria-live="polite"
-          aria-label="Philosophers are thinking"
-        >
-          [ all thinkers are deliberating... ]
-        </div>
-      )}
+      {(() => {
+        const displayText = bargein_display_text || (current_question && !questionHidden ? current_question : '');
+        if (!displayText) return null;
+        const isBargein = !!bargein_display_text;
+        const revision = isBargein ? bargeinDisplayRevision : questionRevision;
+        return (
+          <div className={styles.userQuestion}>
+            {revision > 1 ? (
+              <Typewriter
+                key={`${isBargein ? 'bargein' : 'question'}-${revision}`}
+                text={displayText}
+                onComplete={isBargein ? undefined : resolveQuestionTypewriter}
+              />
+            ) : (
+              displayText
+            )}
+          </div>
+        );
+      })()}
 
       {!isDebating && !isPendingFirstResponse && !awaitingAudienceInput && !thinkingName && !currentPhilosopher && (
         <div className={styles.deliberating} aria-live="polite">
@@ -234,10 +276,6 @@ function App() {
         />
       )}
 
-      <MicIndicator
-        micState={micMuted ? 'idle' : (barge_in_active ? 'speaking' : 'idle')}
-        interimTranscript=""
-      />
     </main>
   );
 }

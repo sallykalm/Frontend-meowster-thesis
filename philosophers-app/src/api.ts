@@ -143,8 +143,8 @@ export async function getNextResponse(debateSignal?: AbortSignal): Promise<ApiRe
       // MOCK: remove when backend sends rag_relevance natively
       if (data.rag_relevance == null) data.rag_relevance = Math.random() * (1.5 - 0.1) + 0.1;
 
-      // Allow the awaiting_audience_input sentinel through.
-      const isSentinel = data.turn_type === 'awaiting_audience_input';
+      // Allow sentinels (audience input pause, debate-end is_last) through even with empty text.
+      const isSentinel = data.turn_type === 'awaiting_audience_input' || data.is_last;
       if (!data.philosopher || (!data.text && !isSentinel)) {
         throw new Error('Invalid response: missing required fields');
       }
@@ -205,14 +205,20 @@ export async function submitAudienceQuestion(
 
 /**
  * Posts a live moderator instruction to the running debate.
+ * displayText, if provided, is shown in the pink question box on the display frontend.
  * Returns the corrected instruction text, or null on failure.
  */
-export async function postLiveInstruction(instruction: string): Promise<string | null> {
+export async function postLiveInstruction(
+  instruction: string,
+  displayText?: string,
+): Promise<string | null> {
   try {
+    const body: Record<string, string> = { instruction };
+    if (displayText) body.display_text = displayText;
     const response = await fetch(`${BASE_URL}live-instruction`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ instruction }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) return null;
