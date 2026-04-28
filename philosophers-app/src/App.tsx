@@ -12,10 +12,21 @@ import styles from './App.module.css';
 import './App.css';
 
 function App() {
-  const [isBooting, setIsBooting] = useState(true);
+  const [isBooting, setIsBooting] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
+  // Refs so polling closures always read the latest values without re-subscribing
+  const hasStartedRef = useRef(false);
+  const isBootingRef = useRef(false);
+  const [bootDismissSignal, setBootDismissSignal] = useState(false);
 
   // Stable reference prevents BootScreen's useEffect from re-firing on every re-render
-  const handleBootDone = useCallback(() => setIsBooting(false), []);
+  const handleBootDone = useCallback(() => {
+    hasStartedRef.current = true;
+    isBootingRef.current = false;
+    setBootDismissSignal(false);
+    setHasStarted(true);
+    setIsBooting(false);
+  }, []);
 
   const {
     barge_in_active,
@@ -31,6 +42,7 @@ function App() {
     clear_history_seq,
     clear_question_seq,
     tts_muted,
+    mic_active,
   } = useStatus(150);
 
   const {
@@ -41,10 +53,6 @@ function App() {
     interruptingName,
     isDebating,
     error,
-    awaitingAudienceInput,
-    stopCurrentAudio,
-    interruptCurrentLine,
-    clearPrefetch,
     setTtsMuted,
     subtitleChunk,
     resolveQuestionTypewriter,
@@ -53,6 +61,7 @@ function App() {
     triggerHardReset,
     deactivateTalking,
     resetForNewQuestion,
+    resetForBargein,
     clearHistory,
     ragRelevanceMap,
   } = useDebate();
@@ -86,16 +95,19 @@ function App() {
     }
   }, [current_question]);
 
-  // Rising edge of barge_in_active → stop audio + typewriter + discard prefetch immediately
+  // Rising edge of barge_in_active → stop audio, discard any pre-fetched (possibly
+  // already-resolved) response, abort the passive loop and restart it clean.
+  // Using resetForBargein() (which calls startPassiveLoop() internally) guarantees
+  // that a resolved prefetch for the OLD philosopher can never be consumed by the loop
+  // after the loop is restarted — the new loop has no prefetch and blocks on the
+  // barge-in gate until the new question is submitted.
   const prevBargeinActiveRef = useRef(false);
   useEffect(() => {
     if (barge_in_active && !prevBargeinActiveRef.current) {
-      stopCurrentAudio();
-      interruptCurrentLine();
-      clearPrefetch();
+      resetForBargein();
     }
     prevBargeinActiveRef.current = barge_in_active;
-  }, [barge_in_active, stopCurrentAudio, interruptCurrentLine, clearPrefetch]);
+  }, [barge_in_active, resetForBargein]);
 
   // Track bargein_display_text changes for typewriter animation in the pink box
   const [bargeinDisplayRevision, setBargeinDisplayRevision] = useState(0);
@@ -180,7 +192,17 @@ function App() {
         const seq = typeof data.boot_seq === 'number' ? data.boot_seq : -1;
         if (seq >= 0) {
           if (prevSeq >= 0 && seq !== prevSeq) {
-            setIsBooting(true);
+            if (isBootingRef.current) {
+              // Second boot signal while boot screen is showing → dismiss it
+              setBootDismissSignal(true);
+            } else {
+              // Boot signal → show the boot screen (works at any time, incl. after hasStarted)
+              isBootingRef.current = true;
+              hasStartedRef.current = false;
+              setBootDismissSignal(false);
+              setHasStarted(false);
+              setIsBooting(true);
+            }
           }
           prevSeq = seq;
         }
@@ -205,7 +227,6 @@ function App() {
 
   const allThinking =
     (isDebating || isPendingFirstResponse) &&
-    !awaitingAudienceInput &&
     !thinkingName &&
     !currentPhilosopher &&
     !currentLine;
@@ -213,69 +234,89 @@ function App() {
   return (
     <main
       className={styles.appContainer}
-      aria-busy={!!thinkingName || (isDebating && !awaitingAudienceInput)}
+      aria-busy={hasStarted && (!!thinkingName || isDebating)}
     >
-      {isBooting && <BootScreen onDone={handleBootDone} />}
+      {isBooting && <BootScreen onDone={handleBootDone} dismissSignal={bootDismissSignal} />}
 
-      {credits_open && (
-        <Credits onClose={() => void fetch(`${BASE_URL}credits`, { method: 'POST' })} />
+      {hasStarted && (
+        <>
+          {credits_open && (
+            <Credits onClose={() => void fetch(`${BASE_URL}credits`, { method: 'POST' })} />
+          )}
+
+          <ImageGrid
+            imageSet={image_set}
+            onImageSetChange={() => {}}
+            typingPhilosopher={currentPhilosopher}
+            thinkingName={thinkingName}
+            interruptingName={interruptingName}
+            currentPhilosopher={currentPhilosopher}
+            isPaused={false}
+            ragRelevanceMap={ragRelevanceMap}
+            allThinking={allThinking}
+          />
+
+          {error && (
+            <div className={styles.errorMessage} role="alert">
+              {error}
+            </div>
+          )}
+
+          {(() => {
+            const displayText = bargein_display_text || (current_question && !questionHidden ? current_question : '');
+            if (!displayText) return null;
+            const isBargein = !!bargein_display_text;
+            const revision = isBargein ? bargeinDisplayRevision : questionRevision;
+            return (
+              <div className={styles.userQuestion}>
+                {revision > 1 ? (
+                  <Typewriter
+                    key={`${isBargein ? 'bargein' : 'question'}-${revision}`}
+                    text={displayText}
+                    onComplete={isBargein ? undefined : resolveQuestionTypewriter}
+                  />
+                ) : (
+                  displayText
+                )}
+              </div>
+            );
+          })()}
+
+          {!isDebating && !isPendingFirstResponse && !thinkingName && !currentPhilosopher && (
+            <div className={styles.deliberating} aria-live="polite">
+              [ waiting for a new question... ]
+            </div>
+          )}
+
+          {subtitleChunk ? (
+            <SubtitleView chunk={subtitleChunk} />
+          ) : (
+            <DiscussionLog
+              finishedLines={finishedLines}
+              currentLine={currentLine}
+              isFastForwarding={is_fast_forwarding}
+              isPaused={false}
+            />
+          )}
+        </>
       )}
 
-      <ImageGrid
-        imageSet={image_set}
-        onImageSetChange={() => {}}
-        typingPhilosopher={currentPhilosopher}
-        thinkingName={thinkingName}
-        interruptingName={interruptingName}
-        currentPhilosopher={currentPhilosopher}
-        isPaused={false}
-        ragRelevanceMap={ragRelevanceMap}
-        allThinking={allThinking}
+      {/* Mic status dot — subtle indicator for operator: green=live, red=muted */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: '12px',
+          right: '12px',
+          width: '10px',
+          height: '10px',
+          borderRadius: '50%',
+          backgroundColor: mic_active ? '#00cc44' : '#cc2200',
+          opacity: 0.75,
+          transition: 'background-color 0.3s ease',
+          zIndex: 9999,
+        }}
+        title={mic_active ? 'Mic active' : 'Mic muted'}
       />
-
-      {error && (
-        <div className={styles.errorMessage} role="alert">
-          {error}
-        </div>
-      )}
-
-      {(() => {
-        const displayText = bargein_display_text || (current_question && !questionHidden ? current_question : '');
-        if (!displayText) return null;
-        const isBargein = !!bargein_display_text;
-        const revision = isBargein ? bargeinDisplayRevision : questionRevision;
-        return (
-          <div className={styles.userQuestion}>
-            {revision > 1 ? (
-              <Typewriter
-                key={`${isBargein ? 'bargein' : 'question'}-${revision}`}
-                text={displayText}
-                onComplete={isBargein ? undefined : resolveQuestionTypewriter}
-              />
-            ) : (
-              displayText
-            )}
-          </div>
-        );
-      })()}
-
-      {!isDebating && !isPendingFirstResponse && !awaitingAudienceInput && !thinkingName && !currentPhilosopher && (
-        <div className={styles.deliberating} aria-live="polite">
-          [ waiting for a new question... ]
-        </div>
-      )}
-
-      {subtitleChunk ? (
-        <SubtitleView chunk={subtitleChunk} />
-      ) : (
-        <DiscussionLog
-          finishedLines={finishedLines}
-          currentLine={currentLine}
-          isFastForwarding={is_fast_forwarding}
-          isPaused={false}
-        />
-      )}
-
     </main>
   );
 }

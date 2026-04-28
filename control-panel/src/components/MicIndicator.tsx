@@ -10,6 +10,7 @@ interface MicIndicatorProps {
 
 const LABELS: Record<MicState, string> = {
   idle:        '[ ◎ mic ]',
+  warming:     '[ ◎ mic · wait ]',
   speaking:    '[ ● mic · listening ]',
   paused:      '[ — mic ]',
   error:       '[ ! mic · no permission ]',

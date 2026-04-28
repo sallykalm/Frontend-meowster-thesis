@@ -3,6 +3,7 @@ import styles from './BootScreen.module.css';
 
 interface BootScreenProps {
   onDone: () => void;
+  dismissSignal?: boolean;
 }
 
 const LINES: { text: string; delay: number; cls?: string }[] = [
@@ -22,7 +23,7 @@ const LINES: { text: string; delay: number; cls?: string }[] = [
 const READY_DELAY = 2800;
 const FADE_DURATION = 800;
 
-const BootScreen = ({ onDone }: BootScreenProps) => {
+const BootScreen = ({ onDone, dismissSignal }: BootScreenProps) => {
   const [visibleCount, setVisibleCount] = useState(0);
   const [ready, setReady] = useState(false);
   const [fading, setFading] = useState(false);
@@ -57,6 +58,11 @@ const BootScreen = ({ onDone }: BootScreenProps) => {
       window.removeEventListener('click', handleClick);
     };
   }, [ready, dismiss]);
+
+  // Dismiss programmatically when the parent signals (e.g. second boot key from control panel)
+  useEffect(() => {
+    if (dismissSignal) dismiss();
+  }, [dismissSignal, dismiss]);
 
   return (
     <div

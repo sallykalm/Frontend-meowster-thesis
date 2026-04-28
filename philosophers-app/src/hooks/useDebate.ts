@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { submitQuestion, getNextResponse, clearQuestion, submitAudienceQuestion, postLiveInstruction, postCorrectTranscript } from '../api';
+import { submitQuestion, getNextResponse, clearQuestion, postLiveInstruction, postCorrectTranscript } from '../api';
 import type { ApiResponse } from '../api';
 import { BASE_URL, MAX_LINE_LENGTH, SUBTITLE_CLEAR_DELAY_MS, FINISHED_LINES_KEPT } from '../constants';
 import type { ChatMessage, SubtitleChunk } from '../types';
@@ -72,9 +72,12 @@ function waitForAudioTime(
 }
 
 
-function sleep(ms: number): Promise<void> {
+/** Like sleep(), but resolves early if the signal is aborted. */
+function sleepAbortable(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
+    if (signal.aborted) { resolve(); return; }
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
   });
 }
 
@@ -85,11 +88,9 @@ interface UseDebateReturn {
   thinkingName: string | null;
   interruptingName: string | null;
   submittedQuestion: string;
-  isAudienceQuestion: boolean;
   questionRevision: number;
   isDebating: boolean;
   error: string | null;
-  awaitingAudienceInput: boolean;
   isAudioPlaying: boolean;
   subtitleChunk: SubtitleChunk | null;
   stopCurrentAudio: () => void;
@@ -100,11 +101,11 @@ interface UseDebateReturn {
   startPassiveLoop: () => void;
   abortDebate: () => void;
   resolveQuestionTypewriter: () => void;
-  handleAudienceQuestion: (question: string, addressedTo: string[], isFollowup: boolean) => Promise<void>;
   setPausePending: (val: boolean) => void;
   triggerHardReset: () => void;
   deactivateTalking: () => void;
   resetForNewQuestion: () => void;
+  resetForBargein: () => void;
   clearPrefetch: () => void;
   clearHistory: () => void;
   ragRelevanceMap: Record<string, number | null>;
@@ -117,16 +118,13 @@ export function useDebate(): UseDebateReturn {
   const [thinkingName, setThinkingName] = useState<string | null>(null);
   const [interruptingName, setInterruptingName] = useState<string | null>(null);
   const [submittedQuestion, setSubmittedQuestion] = useState('');
-  const [isAudienceQuestion, setIsAudienceQuestion] = useState(false);
   const [questionRevision, setQuestionRevision] = useState(0);
   const [isDebating, setIsDebating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [awaitingAudienceInput, setAwaitingAudienceInput] = useState(false);
   const [ragRelevanceMap, setRagRelevanceMap] = useState<Record<string, number | null>>({});
 
   const abortRef = useRef<AbortController | null>(null);
   const questionTypewriterResolveRef = useRef<(() => void) | null>(null);
-  const awaitingAudienceInputRef = useRef(false);
   const pausePendingRef = useRef(false);
   // Set by interruptCurrentLine(); checked before each line in processPhilosopherTurn
   // so the whole turn stops, not just the single line being typed.
@@ -135,6 +133,9 @@ export function useDebate(): UseDebateReturn {
   // Prefetch: holds the promise for the next response, started during the last
   // line of a philosopher's turn so the typewriter can be interrupted early.
   const prefetchPromiseRef = useRef<Promise<ApiResponse | null> | null>(null);
+  // Owns the AbortController for the in-flight prefetch fetch so clearPrefetch()
+  // can cancel the HTTP request and prevent it from consuming a queue slot.
+  const prefetchAbortRef = useRef<AbortController | null>(null);
 
   // Feature 3+4: when the next philosopher's thinking was pre-started during
   // the current audio, these refs carry the state into processPhilosopherTurn
@@ -159,20 +160,9 @@ export function useDebate(): UseDebateReturn {
   // Tracks the last philosopher who completed a turn — used as STT correction context.
   const lastPhilosopherRef = useRef<string | null>(null);
 
-  function setAudienceAwaiting(value: boolean): void {
-    awaitingAudienceInputRef.current = value;
-    setAwaitingAudienceInput(value);
-  }
-
   function resolveQuestionTypewriter(): void {
     questionTypewriterResolveRef.current?.();
     questionTypewriterResolveRef.current = null;
-  }
-
-  async function waitForAudienceQuestion(signal: AbortSignal): Promise<void> {
-    while (!signal.aborted && awaitingAudienceInputRef.current) {
-      await sleep(100);
-    }
   }
 
   function playAudioTracked(url: string): Promise<void> {
@@ -248,15 +238,6 @@ export function useDebate(): UseDebateReturn {
     lastPhilosopher: string | null,
     signal: AbortSignal,
   ): Promise<void> {
-    // System sentinel: the session is paused waiting for an audience question.
-    if (data.turn_type === 'awaiting_audience_input') {
-      setAudienceAwaiting(true);
-      return;
-    }
-
-    // Clear the audience flag for all non-sentinel turns so the UI hides again.
-    setAudienceAwaiting(false);
-
     // Moderator next_question: update the question banner and wait for typewriter to finish
     if (data.turn_type === 'next_question') {
       setSubmittedQuestion(data.text);
@@ -289,6 +270,20 @@ export function useDebate(): UseDebateReturn {
         if (signal.aborted) return;
         setInterruptingName(null);
       } else {
+        // Start fetching B's response during A's thinking delay. Backend needs
+        // 4–8 s to generate LLM text + TTS; starting here instead of at
+        // audio-start gives the prefetch time to resolve before or early into
+        // A's audio, so Feature 4 waitForAudioTime can fire mid-speech.
+        if (data.subtitles?.length && data.audio_url && prefetchPromiseRef.current === null) {
+          console.log('[overlap] early prefetch START during thinking delay for', data.philosopher);
+          const prefetchController = new AbortController();
+          prefetchAbortRef.current = prefetchController;
+          prefetchPromiseRef.current = getNextResponse(AbortSignal.any([signal, prefetchController.signal]));
+          prefetchPromiseRef.current.then(() => {
+            console.log('[overlap] early prefetch RESOLVED (in thinking delay or later)');
+          });
+        }
+
         const answerDelayMs = pendingAnswerDelayRef.current ?? computeAnswerDelay(data.rag_relevance ?? 1.5);
         pendingAnswerDelayRef.current = null;
 
@@ -377,7 +372,7 @@ export function useDebate(): UseDebateReturn {
       });
     });
 
-    audio.play().catch((e: unknown) => {
+    audio.play().catch(async (e: unknown) => {
       console.error('Audio play() rejected:', e);
       // Abort the turn controller so every waitForAudioTime call unblocks immediately.
       // Without this, the rAF loop spins forever when play() fails because
@@ -387,81 +382,106 @@ export function useDebate(): UseDebateReturn {
       audioResolveRef.current = null;
       currentAudioRef.current = null;
       setIsAudioPlaying(false);
+      // Fallback: keep text visible for the expected audio duration so responses
+      // don't flash and disappear when autoplay is blocked by the browser.
+      const durationMs = (data.subtitles?.at(-1)?.end ?? 4) * 1000;
+      await sleepAbortable(Math.min(durationMs, 10_000), signal);
       resolve?.();
     });
 
-    // Prefetch the next response as soon as audio starts.
-    // This lets us detect an incoming interruption mid-playback and cut audio
-    // at exactly the right moment — rather than waiting for the full audio to
-    // finish before ever calling getNextResponse.
+    // Ensure a prefetch promise exists. For TTS turns where the philosopher
+    // changes, an early prefetch was already started in processPhilosopherTurn
+    // during A's thinking delay. For all other cases (first turn, same-philosopher
+    // repeat, typewriter-then-subtitle fallback) we start one here.
     if (prefetchPromiseRef.current === null) {
-      prefetchPromiseRef.current = getNextResponse(signal).then((nextData) => {
-        if (
-          nextData?.turn_type === 'interruption' &&
-          nextData.interrupted_speaker === data.philosopher
-        ) {
-          const cutTime = nextData.interrupted_audio_cut_time;
+      const prefetchController = new AbortController();
+      prefetchAbortRef.current = prefetchController;
+      prefetchPromiseRef.current = getNextResponse(AbortSignal.any([signal, prefetchController.signal]));
+    }
 
-          const doCut = () => {
-            // Unblock all waitForAudioTime rAF loops in the line loop below.
-            turnController.abort();
-            // Pause audio and resolve audioPromise so processSubtitleTurn exits.
-            stopCurrentAudio();
-            // Mark whatever line is currently on screen as interrupted.
-            setCurrentLine((prev) => (prev ? { ...prev, interrupted: true } : prev));
+    // Chain interruption detection and Feature 4 overlap onto whichever promise
+    // is current. If the early prefetch already resolved (during A's thinking
+    // delay), the .then() fires immediately as a microtask — audio is live so
+    // waitForAudioTime works correctly regardless.
+    console.log('[overlap] chaining .then() handler; prefetch already resolved?', prefetchPromiseRef.current !== null);
+    const capturedController = prefetchAbortRef.current;
+    prefetchPromiseRef.current = prefetchPromiseRef.current.then((nextData) => {
+      // Clear the abort ref once resolved (normally or via abort).
+      if (capturedController && prefetchAbortRef.current === capturedController) {
+        prefetchAbortRef.current = null;
+      }
+      console.log('[overlap] prefetch .then() fired; audio.currentTime=', currentAudioRef.current?.currentTime, 'nextPhilosopher=', nextData?.philosopher);
+
+      if (
+        nextData?.turn_type === 'interruption' &&
+        nextData.interrupted_speaker === data.philosopher
+      ) {
+        const cutTime = nextData.interrupted_audio_cut_time;
+
+        const doCut = () => {
+          // Unblock all waitForAudioTime rAF loops in the line loop below.
+          turnController.abort();
+          // Pause audio and resolve audioPromise so processSubtitleTurn exits.
+          stopCurrentAudio();
+          // Mark whatever line is currently on screen as interrupted.
+          setCurrentLine((prev) => (prev ? { ...prev, interrupted: true } : prev));
+        };
+
+        if (cutTime != null && audio.currentTime < cutTime) {
+          // Wait until audio reaches the computed cut point, then cut.
+          void waitForAudioTime(audio, cutTime, signal).then(doCut);
+        } else {
+          // Already past cut time or no timestamp — cut immediately.
+          doCut();
+        }
+      }
+
+      // Feature 4: pre-start thinking for the next philosopher during current audio
+      if (
+        nextData &&
+        nextData.turn_type !== 'interruption' &&
+        nextData.philosopher !== data.philosopher &&
+        nextData.philosopher !== 'SYSTEM'
+      ) {
+        const dist = nextData.rag_relevance ?? 1.5;
+        const thinkingMs = computeThinkingTime(dist);
+        const delayMs = computeAnswerDelay(dist);
+        const overlapMs = thinkingMs - delayMs;
+
+        if (overlapMs > 0) {
+          // Use the exact audio duration from the JSON subtitles array instead of
+          // waiting for audio.duration metadata to load. The last subtitle word
+          // contains the precise audio end time.
+          const subtitlesList = data.subtitles || [];
+          const audioDurationSeconds = subtitlesList.length > 0
+            ? subtitlesList[subtitlesList.length - 1].end
+            : 0;
+
+          const overlapStartTime = Math.max(0, audioDurationSeconds - (overlapMs / 1000));
+
+          const doPreStartThinking = () => {
+            if (signal.aborted) return;
+            thinkingPreStartedRef.current = true;
+            pendingAnswerDelayRef.current = delayMs;
+            setThinkingName(nextData.philosopher);
           };
 
-          if (cutTime != null && audio.currentTime < cutTime) {
-            // Wait until audio reaches the computed cut point, then cut.
-            void waitForAudioTime(audio, cutTime, signal).then(doCut);
-          } else {
-            // Already past cut time or no timestamp — cut immediately.
-            doCut();
-          }
-        }
-
-        // Feature 4: pre-start thinking for the next philosopher during current audio
-        if (
-          nextData &&
-          nextData.turn_type !== 'interruption' &&
-          nextData.philosopher !== data.philosopher &&
-          nextData.philosopher !== 'SYSTEM'
-        ) {
-          const dist = nextData.rag_relevance ?? 1.5;
-          const thinkingMs = computeThinkingTime(dist);
-          const delayMs = computeAnswerDelay(dist);
-          const overlapMs = thinkingMs - delayMs;
-
-          if (overlapMs > 0) {
-            // Use the exact audio duration from the JSON subtitles array instead of
-            // waiting for audio.duration metadata to load. The last subtitle word
-            // contains the precise audio end time.
-            const subtitlesList = data.subtitles || [];
-            const audioDurationSeconds = subtitlesList.length > 0
-              ? subtitlesList[subtitlesList.length - 1].end
-              : 0;
-
-            const overlapStartTime = Math.max(0, audioDurationSeconds - (overlapMs / 1000));
-
-            const doPreStartThinking = () => {
-              if (signal.aborted) return;
-              thinkingPreStartedRef.current = true;
-              pendingAnswerDelayRef.current = delayMs;
-              setThinkingName(nextData.philosopher);
-            };
-
-            if (audioDurationSeconds > 0) {
-              void waitForAudioTime(audio, overlapStartTime, signal).then(doPreStartThinking);
-            } else {
-              // Fallback if subtitles array is completely missing
+          console.log('[overlap] Feature4: audioDuration=', audioDurationSeconds, 'overlapStart=', overlapStartTime, 'overlapMs=', overlapMs, 'audio.currentTime=', audio.currentTime, 'audio.ended=', audio.ended);
+          if (audioDurationSeconds > 0 && !audio.ended) {
+            void waitForAudioTime(audio, overlapStartTime, signal).then(() => {
+              console.log('[overlap] waitForAudioTime reached; audio.currentTime=', audio.currentTime, 'calling doPreStartThinking');
               doPreStartThinking();
-            }
+            });
+          } else {
+            // Audio already ended or no subtitle duration — fire immediately.
+            console.log('[overlap] audio already ended or no duration, firing doPreStartThinking immediately');
+            doPreStartThinking();
           }
         }
+      }
 
-        return nextData;
-      });
-    }
+      return nextData;
+    });
 
     const chunks = chunkSubtitleText(data.text, MAX_LINE_LENGTH);
     const timings = mapChunksToTimings(chunks, data.subtitles!);
@@ -543,7 +563,11 @@ export function useDebate(): UseDebateReturn {
         // On the last line: prefetch the next response so we can interrupt
         // the typewriter mid-stream if an interruption is coming.
         if (isLastLine && prefetchPromiseRef.current === null) {
-          prefetchPromiseRef.current = getNextResponse(signal).then((nextData) => {
+          const prefetchController = new AbortController();
+          prefetchAbortRef.current = prefetchController;
+          prefetchPromiseRef.current = getNextResponse(AbortSignal.any([signal, prefetchController.signal])).then((nextData) => {
+            // Clear the abort ref once resolved (normally or via abort).
+            if (prefetchAbortRef.current === prefetchController) prefetchAbortRef.current = null;
             if (
               nextData?.turn_type === 'interruption' &&
               nextData.interrupted_speaker === data.philosopher
@@ -604,13 +628,6 @@ export function useDebate(): UseDebateReturn {
     let lastPhilosopher: string | null = null;
 
     while (!signal.aborted) {
-      // Pause locally while waiting for a live audience question.
-      // This keeps the loop alive instead of letting it die on null / timeout.
-      if (awaitingAudienceInputRef.current) {
-        await waitForAudienceQuestion(signal);
-        continue;
-      }
-
       // Use the prefetched response if the last turn already fetched it.
       let data: ApiResponse | null;
       if (prefetchPromiseRef.current !== null) {
@@ -620,20 +637,14 @@ export function useDebate(): UseDebateReturn {
         data = await getNextResponse(signal);
       }
 
-      // If we are currently paused for audience input, do not break the loop.
-      // Just wait until the audience question has been submitted.
-      if (!data) {
-        if (awaitingAudienceInputRef.current) {
-          await waitForAudienceQuestion(signal);
-          continue;
-        }
-        break;
-      }
+      if (!data) break;
 
       await processPhilosopherTurn(data, lastPhilosopher, signal);
 
       if (!signal.aborted) {
-        setThinkingName(null);
+        if (!thinkingPreStartedRef.current) {
+          setThinkingName(null);
+        }
         setInterruptingName(null);
       }
 
@@ -650,23 +661,6 @@ export function useDebate(): UseDebateReturn {
     setInterruptingName(null);
   }
 
-  async function handleAudienceQuestion(
-    question: string,
-    addressedTo: string[],
-    isFollowup: boolean,
-  ): Promise<void> {
-    const accepted = await submitAudienceQuestion(question, addressedTo, isFollowup);
-
-    if (accepted) {
-      setError(null);
-      setIsAudienceQuestion(true);
-      setSubmittedQuestion(question);
-      setAudienceAwaiting(false);
-    } else {
-      setError('Failed to submit audience question. Session may no longer be waiting.');
-    }
-  }
-
   async function startDebate(question: string, isVoiceEnabled: boolean = true): Promise<void> {
     setError(null);
     setIsDebating(true);
@@ -676,8 +670,6 @@ export function useDebate(): UseDebateReturn {
     setThinkingName(null);
     setInterruptingName(null);
     setSubmittedQuestion(question);
-    setIsAudienceQuestion(false);
-    setAudienceAwaiting(false);
     prefetchPromiseRef.current = null;
     pendingAnswerDelayRef.current = null;
     thinkingPreStartedRef.current = false;
@@ -708,7 +700,6 @@ export function useDebate(): UseDebateReturn {
       setThinkingName(null);
       setInterruptingName(null);
       setCurrentPhilosopher(null);
-      setAudienceAwaiting(false);
       setIsDebating(false);
     }
   }
@@ -728,9 +719,7 @@ export function useDebate(): UseDebateReturn {
     turnInterruptedRef.current = true;
     setCurrentLine((prev) => (prev ? { ...prev, interrupted: true } : prev));
     if (abortRef.current) abortRef.current.abort();
-    prefetchPromiseRef.current = null;
-    pendingAnswerDelayRef.current = null;
-    thinkingPreStartedRef.current = false;
+    clearPrefetch();
     setCurrentPhilosopher(null);
     setThinkingName(null);
     setInterruptingName(null);
@@ -747,7 +736,15 @@ export function useDebate(): UseDebateReturn {
 
   /** Discard any pre-fetched next-response so barge-in doesn't serve a stale turn. */
   function clearPrefetch(): void {
+    // Abort the in-flight fetch so it doesn't consume a slot from the backend
+    // queue after the barge-in gate opens (which would cause the main loop to
+    // receive response #2 instead of #1).
+    prefetchAbortRef.current?.abort();
+    prefetchAbortRef.current = null;
     prefetchPromiseRef.current = null;
+    // Clear pre-started thinking state so the next turn starts fresh.
+    thinkingPreStartedRef.current = false;
+    pendingAnswerDelayRef.current = null;
   }
 
   /** Force all philosopher GIFs back to idle. Called when deactivate_talking_seq increments. */
@@ -765,9 +762,7 @@ export function useDebate(): UseDebateReturn {
    */
   function resetForNewQuestion(): void {
     stopCurrentAudio();
-    prefetchPromiseRef.current = null;
-    pendingAnswerDelayRef.current = null;
-    thinkingPreStartedRef.current = false;
+    clearPrefetch();
     turnInterruptedRef.current = false;
     setCurrentLine(null);
     setCurrentPhilosopher(null);
@@ -776,7 +771,28 @@ export function useDebate(): UseDebateReturn {
     setIsDebating(false);
     setFinishedLines([]);
     setSubmittedQuestion('');
-    setAudienceAwaiting(false);
+    startPassiveLoop();
+  }
+
+  /**
+   * Called on the rising edge of barge_in_active. Immediately stops audio,
+   * discards any pre-fetched (possibly already-resolved) response, aborts
+   * the current passive loop, and restarts it clean. This prevents the
+   * pre-fetched response for the OLD question from playing before the
+   * barge-in question is answered — the re-started loop blocks on the
+   * barge-in gate until the new question is submitted.
+   */
+  function resetForBargein(): void {
+    stopCurrentAudio();
+    clearPrefetch();
+    turnInterruptedRef.current = true;
+    setCurrentLine((prev) => (prev ? { ...prev, interrupted: true } : prev));
+    setCurrentPhilosopher(null);
+    setThinkingName(null);
+    setInterruptingName(null);
+    // Abort the current loop so it cannot consume the stale pre-fetched data.
+    // startPassiveLoop() creates a new AbortController and a fresh loop that
+    // starts with no prefetch and no stale state.
     startPassiveLoop();
   }
 
@@ -806,7 +822,7 @@ export function useDebate(): UseDebateReturn {
         if (!data) {
           // Idle: no active debate. Back off for 5 s before retrying so the
           // server log stays quiet when no question has been submitted.
-          if (!signal.aborted) await sleep(5000);
+          if (!signal.aborted) await sleepAbortable(5000, signal);
           continue;
         }
 
@@ -814,7 +830,9 @@ export function useDebate(): UseDebateReturn {
         await processPhilosopherTurn(data, lastPhilosopher, signal);
 
         if (!signal.aborted) {
-          setThinkingName(null);
+          if (!thinkingPreStartedRef.current) {
+            setThinkingName(null);
+          }
           setInterruptingName(null);
         }
 
@@ -839,7 +857,6 @@ export function useDebate(): UseDebateReturn {
           setThinkingName(null);
           setInterruptingName(null);
           setIsDebating(false);
-          setAudienceAwaiting(false);
           lastPhilosopher = null;
           continue; // loop stays alive; polls idle (404 → 5 s sleep) until next debate
         }
@@ -863,11 +880,9 @@ export function useDebate(): UseDebateReturn {
     thinkingName,
     interruptingName,
     submittedQuestion,
-    isAudienceQuestion,
     questionRevision,
     isDebating,
     error,
-    awaitingAudienceInput,
     isAudioPlaying,
     subtitleChunk,
     stopCurrentAudio,
@@ -878,11 +893,11 @@ export function useDebate(): UseDebateReturn {
     startPassiveLoop,
     abortDebate,
     resolveQuestionTypewriter,
-    handleAudienceQuestion,
     setPausePending,
     triggerHardReset,
     deactivateTalking,
     resetForNewQuestion,
+    resetForBargein,
     clearPrefetch,
     clearHistory,
     ragRelevanceMap,

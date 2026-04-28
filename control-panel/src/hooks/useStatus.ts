@@ -3,7 +3,6 @@ import { BASE_URL } from '../constants';
 
 export interface SessionStatus {
   active: boolean;
-  awaiting_audience_input: boolean;
   question_id: string | null;
   barge_in_active: boolean;
   image_set: number;
@@ -22,7 +21,6 @@ export interface SessionStatus {
 
 const DEFAULT_STATUS: SessionStatus = {
   active: false,
-  awaiting_audience_input: false,
   question_id: null,
   barge_in_active: false,
   image_set: 1,

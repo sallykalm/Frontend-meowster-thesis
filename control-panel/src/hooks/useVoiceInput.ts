@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { SPEECH_LANGUAGE } from '../constants';
 
-export type MicState = 'unsupported' | 'error' | 'paused' | 'idle' | 'speaking';
+export type MicState = 'unsupported' | 'error' | 'paused' | 'idle' | 'warming' | 'speaking';
 
 // Web Speech API types (not in lib.dom.d.ts by default)
 interface SpeechRecognitionAlternative {
@@ -198,15 +198,34 @@ export function useVoiceInput({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // runs once on mount; gating is handled in the effect below
 
+  // Track whether enabled was true in the previous render so we can detect the
+  // false→true transition and show a warmup indicator.
+  const prevEnabledRef = useRef(enabled);
+
   // Gate recognition on audio playback and the enabled flag.
   // Also runs on mount (after the init effect), which performs the initial start.
   useEffect(() => {
     if (!recognitionRef.current) return;
+    const wasEnabled = prevEnabledRef.current;
+    prevEnabledRef.current = enabled;
+
     const shouldRun = !isAudioPlaying && enabled;
     shouldRunRef.current = shouldRun;
     if (shouldRun) {
-      setMicState('idle');
+      // Start the hardware immediately so the VAD pipeline warms up.
       startRecognition();
+      if (!wasEnabled) {
+        // Mic was just unmuted: show warmup indicator (~1500 ms) so the user
+        // knows to wait before speaking. Web Speech API needs ~1-2 s to
+        // initialise its voice-activity detector — speaking too early causes the
+        // first word to be missed.
+        setMicState('warming');
+        setTimeout(() => {
+          if (shouldRunRef.current) setMicState('idle');
+        }, 1500);
+      } else {
+        setMicState('idle');
+      }
     } else {
       setMicState(isAudioPlaying ? 'paused' : 'idle');
       setInterimTranscript('');

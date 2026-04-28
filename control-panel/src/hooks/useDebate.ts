@@ -2,7 +2,7 @@
  * Write-only debate hook for the controls frontend.
  *
  * Does NOT poll GET /api/next-response — that is the display frontend's job.
- * All state (isDebating, awaitingAudienceInput) comes from useStatus().
+ * All state (isDebating) comes from useStatus().
  * This hook only exposes the write-side: submit, abort, live instructions,
  * audience questions.
  */
@@ -10,27 +10,40 @@ import { useState } from 'react';
 import {
   submitQuestion,
   clearQuestion,
-  submitAudienceQuestion,
 } from '../api';
 
 interface UseDebateReturn {
   error: string | null;
-  startDebate: (question: string, isVoiceEnabled?: boolean) => Promise<void>;
-  abortDebate: () => Promise<void>;
-  handleAudienceQuestion: (
+  startDebate: (
     question: string,
-    addressedTo: string[],
-    isFollowup: boolean,
+    isVoiceEnabled?: boolean,
+    bargeIn?: boolean,
+    addressedTo?: string,
+    endAfterResponse?: boolean,
+    bargeInInstruction?: string,
+    bargeInDisplayText?: string,
   ) => Promise<void>;
+  abortDebate: () => Promise<void>;
 }
 
 export function useDebate(): UseDebateReturn {
   const [error, setError] = useState<string | null>(null);
 
-  async function startDebate(question: string, isVoiceEnabled: boolean = true): Promise<void> {
+  async function startDebate(
+    question: string,
+    isVoiceEnabled: boolean = true,
+    bargeIn: boolean = false,
+    addressedTo?: string,
+    endAfterResponse?: boolean,
+    bargeInInstruction?: string,
+    bargeInDisplayText?: string,
+  ): Promise<void> {
     setError(null);
     await clearQuestion();
-    const ok = await submitQuestion(question, isVoiceEnabled);
+    const ok = await submitQuestion(
+      question, isVoiceEnabled, bargeIn,
+      addressedTo, endAfterResponse, bargeInInstruction, bargeInDisplayText,
+    );
     if (!ok) setError('Failed to submit question. Is the backend running?');
   }
 
@@ -39,15 +52,5 @@ export function useDebate(): UseDebateReturn {
     await clearQuestion();
   }
 
-  async function handleAudienceQuestion(
-    question: string,
-    addressedTo: string[],
-    isFollowup: boolean,
-  ): Promise<void> {
-    const accepted = await submitAudienceQuestion(question, addressedTo, isFollowup);
-    if (!accepted) setError('Failed to submit audience question. Session may no longer be waiting.');
-    else setError(null);
-  }
-
-  return { error, startDebate, abortDebate, handleAudienceQuestion };
+  return { error, startDebate, abortDebate };
 }

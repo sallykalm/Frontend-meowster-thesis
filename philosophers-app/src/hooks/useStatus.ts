@@ -3,7 +3,6 @@ import { BASE_URL } from '../constants';
 
 export interface SessionStatus {
   active: boolean;
-  awaiting_audience_input: boolean;
   question_id: string | null;
   barge_in_active: boolean;
   image_set: number;
@@ -18,11 +17,11 @@ export interface SessionStatus {
   tts_muted: boolean;
   bargein_display_text: string;
   boot_seq: number;
+  mic_active: boolean;
 }
 
 const DEFAULT_STATUS: SessionStatus = {
   active: false,
-  awaiting_audience_input: false,
   question_id: null,
   barge_in_active: false,
   image_set: 1,
@@ -37,6 +36,7 @@ const DEFAULT_STATUS: SessionStatus = {
   tts_muted: false,
   bargein_display_text: '',
   boot_seq: 0,
+  mic_active: false,
 };
 
 /**

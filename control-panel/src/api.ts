@@ -79,12 +79,28 @@ export async function fetchPhilosophers(): Promise<string[] | null> {
 }
 
 /** Submits a question to start a new debate. Returns true if accepted by backend. */
-export async function submitQuestion(text: string, generateAudio: boolean = true): Promise<boolean> {
+export async function submitQuestion(
+  text: string,
+  generateAudio: boolean = true,
+  bargeIn: boolean = false,
+  addressedTo?: string,
+  endAfterResponse?: boolean,
+  bargeInInstruction?: string,
+  bargeInDisplayText?: string,
+): Promise<boolean> {
   try {
     const response = await fetch(`${BASE_URL}question`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, generate_audio: generateAudio }),
+      body: JSON.stringify({
+        text,
+        generate_audio: generateAudio,
+        barge_in: bargeIn,
+        addressed_to: addressedTo,
+        end_after_response: endAfterResponse ?? false,
+        barge_in_instruction: bargeInInstruction ?? '',
+        barge_in_display_text: bargeInDisplayText ?? '',
+      }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     return response.ok;
@@ -203,12 +219,19 @@ export async function submitAudienceQuestion(
 export async function postLiveInstruction(
   instruction: string,
   displayText: string = '',
+  addressedTo?: string,
+  endAfterResponse?: boolean,
 ): Promise<string | null> {
   try {
     const response = await fetch(`${BASE_URL}live-instruction`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ instruction, display_text: displayText }),
+      body: JSON.stringify({
+        instruction,
+        display_text: displayText,
+        addressed_to: addressedTo,
+        end_after_response: endAfterResponse ?? false,
+      }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) return null;
@@ -217,6 +240,17 @@ export async function postLiveInstruction(
   } catch {
     return null;
   }
+}
+
+export async function postMicState(active: boolean): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}mic-state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch { /* non-fatal */ }
 }
 
 export interface BargeInClassification {
@@ -389,6 +423,16 @@ export async function clearQuestion(): Promise<void> {
 export async function postBoot(): Promise<void> {
   try {
     await fetch(`${BASE_URL}boot`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch { /* non-fatal */ }
+}
+
+/** Releases the barge-in gate when a barge-in is discarded without action. */
+export async function postClearBargein(): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}clear-bargein`, {
       method: 'POST',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });

@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import InputSection from './components/InputSection';
-import AudienceInput, { type AudienceInputHandle } from './components/AudienceInput';
 import MicIndicator from './components/MicIndicator';
 import { useWebSpeech } from './hooks/useWebSpeech';
 import { useVoiceInput } from './hooks/useVoiceInput';
@@ -23,10 +22,36 @@ import {
   postClearQuestion,
   postToggleTtsMute,
   postClassifyBargein,
-  postLiveInstruction,
   postBoot,
+  postClearBargein,
+  postMicState,
 } from './api';
-import { BARGE_IN_SUBMIT_DELAY_MS, parseAddressedTo } from './constants';
+
+const PHILOSOPHER_NAMES_LOWER = ['flusser', 'virilio', 'weizenbaum', 'weibel'] as const;
+
+/** Extracts a philosopher name when it appears ANYWHERE in text (for instructions). */
+function extractAddressedPhilosopher(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  for (const name of PHILOSOPHER_NAMES_LOWER) {
+    if (lower.startsWith(name) || new RegExp(`\\b${name}\\b`).test(lower)) {
+      return name.charAt(0).toUpperCase() + name.slice(1);
+    }
+  }
+  return null;
+}
+
+/** Extracts a philosopher name only when the text STARTS with that name (for directed questions). */
+function extractLeadingPhilosopher(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const lower = text.toLowerCase().trim();
+  for (const name of PHILOSOPHER_NAMES_LOWER) {
+    if (lower.startsWith(name)) {
+      return name.charAt(0).toUpperCase() + name.slice(1);
+    }
+  }
+  return null;
+}
 import styles from './App.module.css';
 import './App.css';
 
@@ -40,22 +65,19 @@ function App() {
   const [micMuted, setMicMuted] = useState(true);
   const [liveInstructions, setLiveInstructions] = useState<string[]>([]);
   const [isPreparingQuestion, setIsPreparingQuestion] = useState(false);
-  const [bargeinTranscript, setBargeinTranscript] = useState('');
   const [imageSet, setImageSet] = useState<1 | 2 | 3 | 4>(1);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const audienceInputRef = useRef<AudienceInputHandle>(null);
   const submittedQuestionRef = useRef('');
 
   const status = useStatus();
   const isDebating = status.active;
   const isDebatingRef = useRef(isDebating);
   useEffect(() => { isDebatingRef.current = isDebating; }, [isDebating]);
-  const awaitingAudienceInput = status.awaiting_audience_input;
   const isPausePending = status.is_pause_pending;
   const isRoundUpPending = status.is_round_up_pending;
 
-  const { error, startDebate, abortDebate, handleAudienceQuestion } = useDebate();
+  const { error, startDebate, abortDebate } = useDebate();
 
   useEffect(() => {
     if (!isDebating) {
@@ -97,74 +119,92 @@ function App() {
 
   const handleBargeinTranscript = useCallback((text: string): void => {
     const raw = text.trim();
-    if (!raw || raw.split(/\s+/).length < 3) return;
+    const prevQuestion = submittedQuestionRef.current;
+    const wasDebating = isDebatingRef.current;
+
+    if (!raw || raw.split(/\s+/).length < 3) {
+      void postClearBargein();
+      return;
+    }
 
     void (async () => {
-      const classification = await postClassifyBargein(raw, submittedQuestionRef.current);
+      // Classify the transcript. We do NOT abort the debate here — POST /api/interrupt
+      // (fired in onSpeechStart) already set barge_in_pending=True on the backend,
+      // which gates GET /api/next-response so no stale philosopher turn can be served
+      // while classification is running. Calling abortDebate() concurrently was
+      // setting current_question_id=None, which caused the gate to be bypassed
+      // (the 404 check fires before the gate), resulting in the display sleeping
+      // for 5 s before picking up the new debate. startDebate() already calls
+      // DELETE /api/question internally before POST /api/question, so the abort
+      // happens atomically with the new question submission.
+      const classification = await postClassifyBargein(raw, prevQuestion);
 
-      if (!classification || classification.likely_echo) return;
-
-      const { type, corrected_text, question_part, instruction_part } = classification;
-
-      if (!isDebatingRef.current) {
-        // Idle mode: treat all speech as a new question, no abort needed
-        const q = question_part ?? corrected_text;
-        setSubmittedQuestion(q);
-        submittedQuestionRef.current = q;
-        setLiveInstructions([]);
-        void startDebate(q, true);
+      if (!classification || classification.likely_echo) {
+        if (wasDebating && prevQuestion) {
+          void startDebate(prevQuestion, true, false);
+        } else {
+          void postClearBargein();
+        }
         return;
       }
 
+      const { type, corrected_text, question_part, instruction_part } = classification;
+      // For instructions: extract philosopher from anywhere in the text.
+      // For questions: only treat as directed if the philosopher name LEADS the
+      // question (e.g. "Virilio, what is AI?" → solo Virilio), consistent with
+      // how the backend's text-prefix detection works.
+      const addressed = type === 'question'
+        ? extractLeadingPhilosopher(question_part ?? corrected_text)
+        : extractAddressedPhilosopher(instruction_part ?? corrected_text);
+
       if (type === 'question') {
         const q = question_part ?? corrected_text;
-        await abortDebate();
         setSubmittedQuestion(q);
         submittedQuestionRef.current = q;
         setLiveInstructions([]);
         setIsPreparingQuestion(false);
-        void startDebate(q, true);
+        // If the question is directed at a specific philosopher (leading name),
+        // that philosopher answers alone then the session goes idle — same
+        // behaviour as a typed directed question ("Virilio, what is AI?").
+        void startDebate(q, true, true, addressed ?? undefined, addressed != null ? true : false);
 
       } else if (type === 'instruction') {
-        const accepted = await postLiveInstruction(
-          instruction_part ?? corrected_text,
-          corrected_text,
-        );
-        if (accepted) setLiveInstructions([corrected_text]);
+        // Instruction: restart with same question.
+        // End after addressed philosopher if instruction contains exclusivity words ("only", "just", "alone").
+        // Otherwise debate continues so the addressed philosopher speaks first then others join.
+        // Everything is sent atomically in POST /api/question — no race condition.
+        const instrText = instruction_part ?? corrected_text;
+        const q = prevQuestion || corrected_text;
+        const endAfter = addressed != null && /\bonly\b|\bjust\b|\balone\b/i.test(instrText);
+        void startDebate(q, true, true, addressed ?? undefined, endAfter, instrText, corrected_text);
+        setLiveInstructions([corrected_text]);
 
       } else {
-        // 'both': inject as live instruction, show question part in pink box
-        const displayText = question_part ?? corrected_text;
-        const instructionText = instruction_part ?? corrected_text;
-        const accepted = await postLiveInstruction(instructionText, displayText);
-        if (accepted) setLiveInstructions([displayText]);
+        // 'both': new question, addressed philosopher answers alone then idle.
+        // Everything atomic in POST /api/question.
+        const q = question_part ?? corrected_text;
+        const instrText = instruction_part ?? corrected_text;
+        setSubmittedQuestion(q);
+        submittedQuestionRef.current = q;
+        setLiveInstructions([]);
+        setIsPreparingQuestion(false);
+        void startDebate(q, true, true, addressed ?? undefined, true, instrText, q);
       }
     })();
   }, [abortDebate, startDebate]);
 
   const { micState, interimTranscript } = useVoiceInput({
     isAudioPlaying: false,
-    enabled: bargeinEnabled && !micMuted && !awaitingAudienceInput && !isListening,
+    enabled: bargeinEnabled && !micMuted && !isListening,
     onSpeechStart: handleBargeinSpeechStart,
     onTranscriptReady: handleBargeinTranscript,
   });
-
-  useEffect(() => {
-    if (!awaitingAudienceInput || !bargeinTranscript) return;
-    const timer = setTimeout(() => {
-      void handleAudienceQuestion(bargeinTranscript, parseAddressedTo(bargeinTranscript), false);
-      setBargeinTranscript('');
-    }, BARGE_IN_SUBMIT_DELAY_MS);
-    return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [awaitingAudienceInput, bargeinTranscript]);
 
   function handleSubmit(question: string): void {
     if (!question.trim() || isDebating) return;
     const q = question.trim();
     setSubmittedQuestion(q);
     submittedQuestionRef.current = q;
-    setBargeinTranscript('');
     setLiveInstructions([]);
     setUserQuestion('');
     void startDebate(q, true);
@@ -174,7 +214,6 @@ function App() {
     void postHardReset();
     setIsFastForwarding(false);
     setUserQuestion('');
-    setBargeinTranscript('');
     setLiveInstructions([]);
     setIsPreparingQuestion(false);
   }
@@ -182,14 +221,6 @@ function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === 'INPUT') return;
-
-      if (awaitingAudienceInput) {
-        if (e.code === 'Space') {
-          e.preventDefault();
-          audienceInputRef.current?.toggleVoice();
-        }
-        return;
-      }
 
       if (e.code === 'Space') {
         if (isDebating) { void abortDebate(); return; }
@@ -207,7 +238,7 @@ function App() {
       if (e.key.toUpperCase() === 'Z') void postClearQuestion();
       if (e.key.toUpperCase() === 'D') void postDeactivateTalking();
       if (e.key.toUpperCase() === 'R' && isDebating) void postRoundUp();
-      if (e.key.toUpperCase() === 'X') setMicMuted((m) => !m);
+      if (e.key.toUpperCase() === 'X') setMicMuted((m) => { void postMicState(m); return !m; });
       if (e.key.toUpperCase() === 'B') void postBoot();
     };
 
@@ -241,12 +272,10 @@ function App() {
   }, [
     isListening, isDebating, transcript,
     startVoice, stopVoice, resetVoice, abortDebate,
-    awaitingAudienceInput, isTtsEnabled,
+    isTtsEnabled,
   ]);
 
-  const statusClass = isDebating
-    ? awaitingAudienceInput ? styles.awaiting : styles.active
-    : '';
+  const statusClass = isDebating ? styles.active : '';
 
   return (
     <div className={styles.panel}>
@@ -258,9 +287,7 @@ function App() {
           {isPausePending
             ? '[ pause pending — finishing current speaker ]'
             : isDebating
-              ? awaitingAudienceInput
-                ? '[ awaiting audience question ]'
-                : `[ debating${submittedQuestion ? `: "${submittedQuestion}"` : ''} ]`
+              ? `[ debating${submittedQuestion ? `: "${submittedQuestion}"` : ''} ]`
               : '[ idle — waiting for question ]'}
           {isPreparingQuestion && ' — processing barge-in...'}
         </span>
@@ -270,16 +297,14 @@ function App() {
       <div className={styles.content}>
         {error && <div className={styles.error}>{error}</div>}
 
-        {!awaitingAudienceInput && (
-          <InputSection
-            inputRef={inputRef}
-            value={userQuestion}
-            onChange={setUserQuestion}
-            onSubmit={handleSubmit}
-            disabled={isDebating}
-            suggestions={debateQuestions}
-          />
-        )}
+        <InputSection
+          inputRef={inputRef}
+          value={userQuestion}
+          onChange={setUserQuestion}
+          onSubmit={handleSubmit}
+          disabled={isDebating}
+          suggestions={debateQuestions}
+        />
       </div>
 
       {/* Hints — directly below input */}
@@ -322,7 +347,7 @@ function App() {
 
           <button
             className={`${styles.gridBtn} ${micMuted ? styles.gridBtnActiveRed : ''}`}
-            onClick={() => setMicMuted((m) => !m)}
+            onClick={() => { const newMuted = !micMuted; setMicMuted(newMuted); void postMicState(!newMuted); }}
             title="Mute/unmute barge-in microphone (shortcut: X)"
           >
             <div className={styles.gridBtnSymbol}>X</div>
@@ -435,14 +460,6 @@ function App() {
           </div>
         )}
 
-        {awaitingAudienceInput && (
-          <AudienceInput
-            ref={audienceInputRef}
-            onSubmit={handleAudienceQuestion}
-            contextQuestion={submittedQuestion}
-          />
-        )}
-
         {liveInstructions.length > 0 && isDebating && (
           <div className={styles.liveInstruction}>
             ▸ {liveInstructions[liveInstructions.length - 1]}
@@ -452,7 +469,6 @@ function App() {
         <MicIndicator
           micState={micState}
           interimTranscript={interimTranscript}
-          pendingTranscript={bargeinTranscript || undefined}
         />
       </div>
     </div>
