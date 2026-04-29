@@ -19,7 +19,6 @@ const Credits = ({ onClose }: CreditsProps) => {
       <div className={styles.box} onClick={(e) => e.stopPropagation()}>
 
         <div className={styles.title}>MIND CIRCUITS</div>
-        <div className={styles.subtitle}>Philosophers' Agents</div>
 
         <div className={styles.divider}>{'─'.repeat(48)}</div>
 
@@ -36,7 +35,7 @@ const Credits = ({ onClose }: CreditsProps) => {
 
           <div className={styles.entry}>
             <div className={styles.name}>Max Hagman &amp; Sally Kalm</div>
-            <span>UI/UX &amp; Front-End Development,<br />Chalmers Master's thesis students</span>
+            <span>UI/UX, Visual Design &amp; Front-End Development,<br />Chalmers Master's thesis students</span>
           </div>
 
           <div className={styles.entry}>
@@ -57,6 +56,11 @@ const Credits = ({ onClose }: CreditsProps) => {
           <div className={styles.entry}>
             <div className={styles.name}>Sahil Lakhe</div>
             <span>Back-End Development, Scionova</span>
+          </div>
+
+          <div className={styles.entry}>
+            <div className={styles.name}>Jakob Dahl</div>
+            <span>Music</span>
           </div>
         </div>
 
@@ -87,7 +91,6 @@ const Credits = ({ onClose }: CreditsProps) => {
           First public demonstration · Wisdome, Göteborg, Sweden
         </div>
 
-        <div className={styles.close}>[ C ] or [ ESC ] to close · click outside to close</div>
       </div>
     </div>
   );
