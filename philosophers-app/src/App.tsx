@@ -274,6 +274,7 @@ function App() {
                     key={`${isBargein ? 'bargein' : 'question'}-${revision}`}
                     text={displayText}
                     onComplete={isBargein ? undefined : resolveQuestionTypewriter}
+                    wordByWord
                   />
                 ) : (
                   displayText
