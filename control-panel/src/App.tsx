@@ -27,31 +27,6 @@ import {
   postMicState,
 } from './api';
 
-const PHILOSOPHER_NAMES_LOWER = ['flusser', 'virilio', 'weizenbaum', 'weibel'] as const;
-
-/** Extracts a philosopher name when it appears ANYWHERE in text (for instructions). */
-function extractAddressedPhilosopher(text: string | null | undefined): string | null {
-  if (!text) return null;
-  const lower = text.toLowerCase();
-  for (const name of PHILOSOPHER_NAMES_LOWER) {
-    if (lower.startsWith(name) || new RegExp(`\\b${name}\\b`).test(lower)) {
-      return name.charAt(0).toUpperCase() + name.slice(1);
-    }
-  }
-  return null;
-}
-
-/** Extracts a philosopher name only when the text STARTS with that name (for directed questions). */
-function extractLeadingPhilosopher(text: string | null | undefined): string | null {
-  if (!text) return null;
-  const lower = text.toLowerCase().trim();
-  for (const name of PHILOSOPHER_NAMES_LOWER) {
-    if (lower.startsWith(name)) {
-      return name.charAt(0).toUpperCase() + name.slice(1);
-    }
-  }
-  return null;
-}
 import styles from './App.module.css';
 import './App.css';
 
@@ -139,7 +114,14 @@ function App() {
       // happens atomically with the new question submission.
       const classification = await postClassifyBargein(raw, prevQuestion);
 
-      if (!classification || classification.likely_echo) {
+      if (!classification) {
+        // LLM failure — submit the raw text directly as a new question rather than
+        // silently discarding it. Better to misroute than to drop real audience input.
+        void startDebate(raw, true, true);
+        return;
+      }
+
+      if (classification.likely_echo) {
         if (wasDebating && prevQuestion) {
           void startDebate(prevQuestion, true, false);
         } else {
@@ -148,24 +130,19 @@ function App() {
         return;
       }
 
-      const { type, corrected_text, question_part, instruction_part } = classification;
-      // For instructions: extract philosopher from anywhere in the text.
-      // For questions: only treat as directed if the philosopher name LEADS the
-      // question (e.g. "Virilio, what is AI?" → solo Virilio), consistent with
-      // how the backend's text-prefix detection works.
-      const addressed = type === 'question'
-        ? extractLeadingPhilosopher(question_part ?? corrected_text)
-        : extractAddressedPhilosopher(instruction_part ?? corrected_text);
+      const { type, corrected_text, question_part, instruction_part, addressed_to } = classification;
+      // addressed_to is resolved by the classification LLM — it handles any phrasing,
+      // not just leading-name format ("I have a question for Flusser" → "Flusser").
+      const addressed = addressed_to ?? null;
 
       if (type === 'question') {
-        const q = question_part ?? corrected_text;
+        const q = corrected_text;
         setSubmittedQuestion(q);
         submittedQuestionRef.current = q;
         setLiveInstructions([]);
         setIsPreparingQuestion(false);
-        // If the question is directed at a specific philosopher (leading name),
-        // that philosopher answers alone then the session goes idle — same
-        // behaviour as a typed directed question ("Virilio, what is AI?").
+        // If the question is directed at a specific philosopher, that philosopher
+        // answers alone then the session goes idle.
         void startDebate(q, true, true, addressed ?? undefined, addressed != null ? true : false);
 
       } else if (type === 'instruction') {
@@ -182,13 +159,12 @@ function App() {
       } else {
         // 'both': new question, addressed philosopher answers alone then idle.
         // Everything atomic in POST /api/question.
-        const q = question_part ?? corrected_text;
         const instrText = instruction_part ?? corrected_text;
-        setSubmittedQuestion(q);
-        submittedQuestionRef.current = q;
+        setSubmittedQuestion(corrected_text);
+        submittedQuestionRef.current = corrected_text;
         setLiveInstructions([]);
         setIsPreparingQuestion(false);
-        void startDebate(q, true, true, addressed ?? undefined, true, instrText, q);
+        void startDebate(corrected_text, true, true, addressed ?? undefined, true, instrText, corrected_text);
       }
     })();
   }, [abortDebate, startDebate]);

@@ -259,6 +259,7 @@ export interface BargeInClassification {
   question_part: string | null;
   instruction_part: string | null;
   likely_echo: boolean;
+  addressed_to: string | null;
 }
 
 export async function postClassifyBargein(

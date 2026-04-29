@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { SPEECH_LANGUAGE } from '../constants';
 
-export type MicState = 'unsupported' | 'error' | 'paused' | 'idle' | 'warming' | 'speaking';
+export type MicState = 'unsupported' | 'error' | 'paused' | 'idle' | 'warming' | 'ready' | 'speaking';
 
 // Web Speech API types (not in lib.dom.d.ts by default)
 interface SpeechRecognitionAlternative {
@@ -78,6 +78,9 @@ export function useVoiceInput({
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   // True when we actively want recognition running (not paused, not disabled).
   const shouldRunRef = useRef(false);
+  // True during the ~1500 ms VAD warmup after the mic is first enabled.
+  // Prevents postInterrupt() firing before the pipeline is stable.
+  const warmingRef = useRef(false);
   const isMountedRef = useRef(true);
   // Accumulates final segments within a single speech-start → speech-end window.
   const finalBufferRef = useRef('');
@@ -130,12 +133,17 @@ export function useVoiceInput({
       finalBufferRef.current = '';
       setInterimTranscript('');
       setMicState('speaking');
-      onSpeechStartRef.current?.();
+      // Do not fire the interrupt callback during the VAD warmup window —
+      // speech detected too early produces a truncated transcript and would
+      // cut the philosopher's audio for no useful input.
+      if (!warmingRef.current) {
+        onSpeechStartRef.current?.();
+      }
     };
 
     recognition.onspeechend = () => {
       if (!isMountedRef.current) return;
-      setMicState('idle');
+      setMicState(shouldRunRef.current ? 'ready' : 'idle');
     };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
@@ -153,10 +161,10 @@ export function useVoiceInput({
         }
       }
       if (hasFinal) {
-        // A final result means the speech segment ended — return to idle so the
-        // indicator doesn't get stuck in 'speaking' if onspeechend never fires
+        // A final result means the speech segment ended — return to ready/idle so
+        // the indicator doesn't get stuck in 'speaking' if onspeechend never fires
         // (e.g. when the mic is muted externally mid-stream).
-        setMicState('idle');
+        setMicState(shouldRunRef.current ? 'ready' : 'idle');
         setInterimTranscript('');
         // finalBufferRef is intentionally kept — it accumulates across segments
         // within one speech window and is cleared by onspeechstart on the next utterance.
@@ -219,14 +227,17 @@ export function useVoiceInput({
         // knows to wait before speaking. Web Speech API needs ~1-2 s to
         // initialise its voice-activity detector — speaking too early causes the
         // first word to be missed.
+        warmingRef.current = true;
         setMicState('warming');
         setTimeout(() => {
-          if (shouldRunRef.current) setMicState('idle');
+          warmingRef.current = false;
+          if (shouldRunRef.current) setMicState('ready');
         }, 1500);
       } else {
-        setMicState('idle');
+        setMicState('ready');
       }
     } else {
+      warmingRef.current = false;
       setMicState(isAudioPlaying ? 'paused' : 'idle');
       setInterimTranscript('');
       finalBufferRef.current = '';
