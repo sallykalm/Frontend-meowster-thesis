@@ -75,6 +75,15 @@ function App() {
   // immediately, before the next poll returns the new question text.
   const [questionSwitching, setQuestionSwitching] = useState(false);
 
+  // True from the moment stop_audio fires (interrupt received) until either:
+  //   - a new question_id arrives (new debate started), or
+  //   - barge_in_active goes true→false (gate released/cancelled), or
+  //   - hard reset fires.
+  // Bridges the polling gap (~50 ms) between the SSE stop_audio event and the
+  // first status poll that returns barge_in_active=true, preventing the display
+  // from flashing "[ waiting for a new question... ]" or showing the old question.
+  const [bargeinInFlight, setBargeinInFlight] = useState(false);
+
   const prevQuestionIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (question_id && question_id !== prevQuestionIdRef.current) {
@@ -82,6 +91,7 @@ function App() {
       // correctly trigger resetForNewQuestion when they arrive mid-debate.
       const hadPrev = prevQuestionIdRef.current !== null;
       prevQuestionIdRef.current = question_id;
+      setBargeinInFlight(false);
       if (hadPrev) {
         resetForNewQuestion();
         setQuestionSwitching(true);
@@ -120,6 +130,10 @@ function App() {
     if (barge_in_active && !prevBargeinActiveRef.current) {
       resetForBargein();
     }
+    if (!barge_in_active && prevBargeinActiveRef.current) {
+      // Gate released — barge-in pipeline finished or was cancelled.
+      setBargeinInFlight(false);
+    }
     prevBargeinActiveRef.current = barge_in_active;
   }, [barge_in_active, resetForBargein]);
 
@@ -131,10 +145,12 @@ function App() {
   useEvents({
     onStopAudio: useCallback((seq: number) => {
       lastHandledStopAudioSeqRef.current = seq;
+      setBargeinInFlight(true);
       resetForBargein();
     }, [resetForBargein]),
     onReset: useCallback((seq: number) => {
       lastHandledHardResetSeqRef.current = seq;
+      setBargeinInFlight(false);
       triggerHardReset();
     }, [triggerHardReset]),
   });
@@ -145,6 +161,7 @@ function App() {
   useEffect(() => {
     if (stop_audio_seq !== prevStopAudioSeqRef.current) {
       prevStopAudioSeqRef.current = stop_audio_seq;
+      setBargeinInFlight(true);
       if (stop_audio_seq !== lastHandledStopAudioSeqRef.current) {
         resetForBargein();
       }
@@ -179,6 +196,7 @@ function App() {
   useEffect(() => {
     if (hard_reset_seq !== prevHardResetSeqRef.current) {
       prevHardResetSeqRef.current = hard_reset_seq;
+      setBargeinInFlight(false);
       if (hard_reset_seq !== lastHandledHardResetSeqRef.current) {
         triggerHardReset();
       }
@@ -307,9 +325,9 @@ function App() {
           )}
 
           {(() => {
-            // Suppress ALL question text the moment the user starts speaking or barge-in is active,
-            // including any bargein_display_text left over from the previous exchange.
-            const bargeinInProgress = mic_state === 'speaking' || barge_in_active;
+            // Suppress ALL question text while barge-in is in any stage: speaking,
+            // in-flight (gap between stop_audio and first poll), or gate open.
+            const bargeinInProgress = mic_state === 'speaking' || barge_in_active || bargeinInFlight;
             const displayText = (!bargeinInProgress && bargein_display_text) || (current_question && !questionHidden && !questionSwitching && !bargeinInProgress ? current_question : '');
             if (!displayText) return null;
             const isBargein = !!bargein_display_text;
@@ -334,7 +352,7 @@ function App() {
             <div className={styles.deliberating} aria-live="polite">
               [ listening... ]
             </div>
-          ) : barge_in_active ? (
+          ) : (barge_in_active || bargeinInFlight) ? (
             <div className={styles.deliberating} aria-live="polite">
               [ processing... ]
             </div>
