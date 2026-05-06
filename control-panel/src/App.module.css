@@ -292,3 +292,27 @@
   border: 1px solid #3a1a4a;
   border-radius: 3px;
 }
+
+/* ── Total Reset (emergency) ──────────────────────────── */
+.totalResetButton {
+  background-color: #cc0000;
+  color: #ffffff;
+  font-weight: bold;
+  font-size: 1rem;
+  font-family: 'Courier New', Courier, monospace;
+  border: 2px solid #ff4444;
+  padding: 10px 20px;
+  cursor: pointer;
+  letter-spacing: 0.08em;
+  width: 100%;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.totalResetButton:hover {
+  background-color: #ff0000;
+}
+
+.totalResetButton:active {
+  background-color: #990000;
+}

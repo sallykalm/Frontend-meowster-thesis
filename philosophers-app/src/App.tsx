@@ -7,6 +7,7 @@ import Typewriter from './components/Typewriter';
 import ImageGrid from './components/ImageGrid';
 import { useDebate } from './hooks/useDebate';
 import { useStatus } from './hooks/useStatus';
+import { useEvents } from './hooks/useEvents';
 import { BASE_URL } from './constants';
 import styles from './App.module.css';
 import './App.css';
@@ -42,8 +43,9 @@ function App() {
     clear_history_seq,
     clear_question_seq,
     tts_muted,
-    mic_active,
-  } = useStatus(150);
+    stop_audio_seq,
+    mic_state,
+  } = useStatus(50);
 
   const {
     finishedLines,
@@ -64,10 +66,15 @@ function App() {
     resetForBargein,
     clearHistory,
     ragRelevanceMap,
+    notifyQuestionId,
   } = useDebate();
 
   // When the controls app submits a new question, stop old audio and restart
   // the passive loop immediately — don't wait for old TTS to finish playing.
+  // Set to true the moment question_id changes so the old question text is blanked
+  // immediately, before the next poll returns the new question text.
+  const [questionSwitching, setQuestionSwitching] = useState(false);
+
   const prevQuestionIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (question_id && question_id !== prevQuestionIdRef.current) {
@@ -77,11 +84,17 @@ function App() {
       prevQuestionIdRef.current = question_id;
       if (hadPrev) {
         resetForNewQuestion();
+        setQuestionSwitching(true);
       }
     }
   // resetForNewQuestion is stable (uses only refs internally)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question_id]);
+
+  // Keep the passive loop's stale-detection ref in sync with the current question_id.
+  useEffect(() => {
+    notifyQuestionId(question_id);
+  }, [question_id, notifyQuestionId]);
 
   // Track question revisions for barge-in typewriter animation:
   // revision 1 = first appearance (static), revision 2+ = barge-in replacement (typewriter)
@@ -92,6 +105,7 @@ function App() {
     if (current_question && current_question !== prevQuestionRef.current) {
       prevQuestionRef.current = current_question;
       setQuestionRevision((r) => r + 1);
+      setQuestionSwitching(false);
     }
   }, [current_question]);
 
@@ -108,6 +122,34 @@ function App() {
     }
     prevBargeinActiveRef.current = barge_in_active;
   }, [barge_in_active, resetForBargein]);
+
+  // SSE deduplication — track which seq values were already handled via the SSE
+  // stream so the status-poll fallback below doesn't double-fire on the same event.
+  const lastHandledStopAudioSeqRef = useRef(stop_audio_seq);
+  const lastHandledHardResetSeqRef = useRef(hard_reset_seq);
+
+  useEvents({
+    onStopAudio: useCallback((seq: number) => {
+      lastHandledStopAudioSeqRef.current = seq;
+      resetForBargein();
+    }, [resetForBargein]),
+    onReset: useCallback((seq: number) => {
+      lastHandledHardResetSeqRef.current = seq;
+      triggerHardReset();
+    }, [triggerHardReset]),
+  });
+
+  // Rising edge of stop_audio_seq — 50 ms status-poll fallback for when the SSE
+  // stream wasn't connected or the event was missed.
+  const prevStopAudioSeqRef = useRef(stop_audio_seq);
+  useEffect(() => {
+    if (stop_audio_seq !== prevStopAudioSeqRef.current) {
+      prevStopAudioSeqRef.current = stop_audio_seq;
+      if (stop_audio_seq !== lastHandledStopAudioSeqRef.current) {
+        resetForBargein();
+      }
+    }
+  }, [stop_audio_seq, resetForBargein]);
 
   // Track bargein_display_text changes for typewriter animation in the pink box
   const [bargeinDisplayRevision, setBargeinDisplayRevision] = useState(0);
@@ -132,12 +174,14 @@ function App() {
     setPausePending(is_pause_pending);
   }, [is_pause_pending, setPausePending]);
 
-  // React to hard-reset signal from controls
+  // React to hard-reset signal from controls (50 ms status-poll fallback).
   const prevHardResetSeqRef = useRef(hard_reset_seq);
   useEffect(() => {
     if (hard_reset_seq !== prevHardResetSeqRef.current) {
       prevHardResetSeqRef.current = hard_reset_seq;
-      triggerHardReset();
+      if (hard_reset_seq !== lastHandledHardResetSeqRef.current) {
+        triggerHardReset();
+      }
     }
   }, [hard_reset_seq, triggerHardReset]);
 
@@ -263,7 +307,10 @@ function App() {
           )}
 
           {(() => {
-            const displayText = bargein_display_text || (current_question && !questionHidden ? current_question : '');
+            // Suppress ALL question text the moment the user starts speaking or barge-in is active,
+            // including any bargein_display_text left over from the previous exchange.
+            const bargeinInProgress = mic_state === 'speaking' || barge_in_active;
+            const displayText = (!bargeinInProgress && bargein_display_text) || (current_question && !questionHidden && !questionSwitching && !bargeinInProgress ? current_question : '');
             if (!displayText) return null;
             const isBargein = !!bargein_display_text;
             const revision = isBargein ? bargeinDisplayRevision : questionRevision;
@@ -283,11 +330,19 @@ function App() {
             );
           })()}
 
-          {!isDebating && !isPendingFirstResponse && !thinkingName && !currentPhilosopher && (
+          {mic_state === 'speaking' ? (
+            <div className={styles.deliberating} aria-live="polite">
+              [ listening... ]
+            </div>
+          ) : barge_in_active ? (
+            <div className={styles.deliberating} aria-live="polite">
+              [ processing... ]
+            </div>
+          ) : !isDebating && !isPendingFirstResponse && !thinkingName && !currentPhilosopher ? (
             <div className={styles.deliberating} aria-live="polite">
               [ waiting for a new question... ]
             </div>
-          )}
+          ) : null}
 
           {subtitleChunk ? (
             <SubtitleView chunk={subtitleChunk} />
@@ -302,7 +357,7 @@ function App() {
         </>
       )}
 
-      {/* Mic status dot — subtle indicator for operator: green=live, red=muted */}
+      {/* Mic status dot — red=off, orange=warming up, green=ready, blue=speaking */}
       <div
         style={{
           position: 'fixed',
@@ -311,12 +366,21 @@ function App() {
           width: '10px',
           height: '10px',
           borderRadius: '50%',
-          backgroundColor: mic_active ? '#00cc44' : '#cc2200',
+          backgroundColor:
+            mic_state === 'speaking' ? '#2288ff' :
+            mic_state === 'ready'    ? '#00cc44' :
+            mic_state === 'warming'  ? '#ff8800' :
+            '#cc2200',
           opacity: 0.75,
           transition: 'background-color 0.3s ease',
           zIndex: 9999,
         }}
-        title={mic_active ? 'Mic active' : 'Mic muted'}
+        title={
+          mic_state === 'speaking' ? 'Mic: hearing input' :
+          mic_state === 'ready'    ? 'Mic: ready' :
+          mic_state === 'warming'  ? 'Mic: warming up' :
+          'Mic: off'
+        }
       />
     </main>
   );

@@ -28,8 +28,10 @@ export const FINISHED_LINES_KEPT = 3;
 export const MAX_VISIBLE_LINES = 4;
 export const LINE_OPACITIES = [1, 1, 0.6, 0.3]; // newest → oldest
 
-// Typewriter
-export const TYPEWRITER_SPEED_MS = 90;
+// Typewriter — word-by-word speed for the question/barge-in display box.
+// Set to ~1/3 of the original 90 ms so the question reads out slowly enough
+// that the audience can follow it before the philosopher starts responding.
+export const TYPEWRITER_SPEED_MS = 270;
 
 export const TYPEWRITER_SPEED_BY_PHILOSOPHER: Record<string, number> = {
   Flusser:     50,

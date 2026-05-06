@@ -18,6 +18,8 @@ export interface SessionStatus {
   bargein_display_text: string;
   boot_seq: number;
   mic_active: boolean;
+  stop_audio_seq: number;
+  mic_state: string;
 }
 
 const DEFAULT_STATUS: SessionStatus = {
@@ -37,6 +39,8 @@ const DEFAULT_STATUS: SessionStatus = {
   bargein_display_text: '',
   boot_seq: 0,
   mic_active: false,
+  stop_audio_seq: 0,
+  mic_state: 'off',
 };
 
 /**

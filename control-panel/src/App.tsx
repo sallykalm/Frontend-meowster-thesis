@@ -15,6 +15,7 @@ import {
   postFastForward,
   postSoftPause,
   postHardReset,
+  postTotalReset,
   postCreditsToggle,
   postDeactivateTalking,
   postRoundUp,
@@ -27,8 +28,95 @@ import {
   postMicState,
 } from './api';
 
+import { BARGE_IN_SUBMIT_DELAY_MS } from './constants';
 import styles from './App.module.css';
 import './App.css';
+
+// ---------------------------------------------------------------------------
+// Position-aware philosopher name corrector
+// ---------------------------------------------------------------------------
+// Pre-LLM pass that catches novel STT misrecognitions (e.g. "Aurelio" for
+// "Virilio") before the transcript reaches the classifier. Only corrects words
+// that appear in grammatical name positions and are phonetically similar to one
+// of the four philosopher names. Runs entirely client-side — zero latency cost.
+
+const _PHILOSOPHER_NAMES = ['Flusser', 'Virilio', 'Weizenbaum', 'Weibel'] as const;
+
+function _phoneticSimilarity(a: string, b: string): number {
+  // Character bigrams + suffix bonus. More sensitive to shared endings than
+  // pure trigram similarity, which is important for catching "-lio"/"-elio"
+  // variants of "Virilio" ("Aurelio", "Orilio", etc.).
+  const al = a.toLowerCase();
+  const bl = b.toLowerCase();
+  const bigrams = (s: string): Set<string> => {
+    const r = new Set<string>();
+    for (let i = 0; i < s.length - 1; i++) r.add(s.slice(i, i + 2));
+    return r;
+  };
+  const ba = bigrams(al);
+  const bb = bigrams(bl);
+  let shared = 0;
+  ba.forEach((t) => { if (bb.has(t)) shared++; });
+  const bigramSim = ba.size + bb.size > 0 ? (2 * shared) / (ba.size + bb.size) : 0;
+  // Shared suffix bonus — "lio" shared by "aurelio"/"virilio" boosts score.
+  let suffixLen = 0;
+  const minLen = Math.min(al.length, bl.length);
+  for (let i = 1; i <= minLen; i++) {
+    if (al.slice(-i) === bl.slice(-i)) suffixLen = i;
+    else break;
+  }
+  const suffixBonus = suffixLen / Math.max(al.length, bl.length);
+  return Math.min(1, bigramSim + suffixBonus * 0.5);
+}
+
+// Words that should never be treated as philosopher name candidates.
+const _COMMON_WORDS = new Set([
+  'this','that','what','when','where','which','from','into','some','more',
+  'just','also','very','think','know','talk','speak','tell','about','them',
+  'they','their','there','here','have','been','will','would','could','should',
+  'might','must','your','true','false','agree','time','life','work','back',
+  'well','good','look','come','over','take','make','want','need','help',
+  'even','only','both','each','many','much','most','such','long','next',
+  'then','than','like','does','done','else','first','last','real','actually',
+  'hello','please','thank','sorry','okay','sure','right','wrong','think',
+]);
+
+function _tryCorrectWord(word: string): string {
+  const lw = word.toLowerCase();
+  if (_PHILOSOPHER_NAMES.some((n) => n.toLowerCase() === lw)) return word;
+  if (word.length < 4) return word;
+  if (_COMMON_WORDS.has(lw)) return word;
+  let best = '';
+  let bestScore = 0.42; // Tuned: "aurelio"→"virilio" scores ~0.55, "viral"→"virilio" ~0.40
+  for (const name of _PHILOSOPHER_NAMES) {
+    const s = _phoneticSimilarity(word, name);
+    if (s > bestScore) { bestScore = s; best = name; }
+  }
+  return best || word;
+}
+
+function correctPhilosopherNamesPositional(text: string): string {
+  // 1. Words after address-verbs / person-introducing prepositions.
+  //    E.g. "do you agree with Aurelio?" → "do you agree with Virilio?"
+  const withTrigger = text.replace(
+    /\b(ask|address|question|agree\s+with|speak\s+(?:to|with)|talk\s+to|reply\s+to|respond\s+to|directed\s+at)\s+([A-Za-z]+)/gi,
+    (m, trigger: string, word: string) => {
+      const c = _tryCorrectWord(word);
+      return c !== word ? `${trigger} ${c}` : m;
+    },
+  );
+
+  // 2. Sentence-initial direct address: "Aurelio, what do you think?"
+  const withStart = withTrigger.replace(
+    /^([A-Za-z]{4,})(\s*[,?!])/,
+    (m, word: string, punct: string) => {
+      const c = _tryCorrectWord(word);
+      return c !== word ? `${c}${punct}` : m;
+    },
+  );
+
+  return withStart;
+}
 
 function App() {
   const [debateQuestions, setDebateQuestions] = useState<string[]>([]);
@@ -39,11 +127,24 @@ function App() {
   const [bargeinEnabled, setBargeinEnabled] = useState(true);
   const [micMuted, setMicMuted] = useState(true);
   const [liveInstructions, setLiveInstructions] = useState<string[]>([]);
-  const [isPreparingQuestion, setIsPreparingQuestion] = useState(false);
+  const [bargeinPhase, setBargeinPhase] = useState<'idle' | 'listening' | 'processing'>('idle');
   const [imageSet, setImageSet] = useState<1 | 2 | 3 | 4>(1);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const submittedQuestionRef = useRef('');
+  // Token: incremented on each new transcript so a stale classification result
+  // arriving after a newer transcript is silently discarded.
+  const classificationTokenRef = useRef(0);
+  // Timer ref for the pre-submit delay. Cleared when new speech arrives.
+  const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Safety timer: last-resort gate release if the pipeline never completes.
+  const bargeinSafetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest non-empty Web Speech text seen during the current barge-in utterance.
+  // Updated from interimTranscript via useEffect; used by the safety timer fallback.
+  const bargeinLatestTextRef = useRef('');
+  // Stable ref to handleBargeinTranscript so the safety timer can call it
+  // without creating a forward-reference dependency.
+  const bargeinTranscriptFnRef = useRef<((text: string) => void) | null>(null);
 
   const status = useStatus();
   const isDebating = status.active;
@@ -54,11 +155,17 @@ function App() {
 
   const { error, startDebate, abortDebate } = useDebate();
 
+  const displayedQuestion = isDebating ? submittedQuestion : '';
+
   useEffect(() => {
     if (!isDebating) {
-      setSubmittedQuestion('');
       submittedQuestionRef.current = '';
     }
+    // Clear barge-in phase as soon as the backend confirms a debate is active
+    // (or has ended). Covers the case where startDebate() fires but the phase
+    // wasn't reset in the closure (e.g. typed-question submit path).
+    // eslint-disable-next-line react-compiler/react-compiler
+    setBargeinPhase('idle');
   }, [isDebating]);
 
   useEffect(() => {
@@ -87,94 +194,194 @@ function App() {
   const dotCount = useDotAnimation(isListening && !transcript.trim());
 
   const handleBargeinSpeechStart = useCallback((): void => {
-    if (isDebatingRef.current) {
-      postInterrupt().catch(() => {});
+    // Cancel any pending delayed submit from a previous utterance.
+    if (pendingTimerRef.current !== null) {
+      clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = null;
     }
+    // Clear accumulated text for this new utterance.
+    bargeinLatestTextRef.current = '';
+    // Safety timer: last resort if the commit timers never fire (e.g. Web Speech
+    // stalls and produces no output). Instead of silently discarding, check if
+    // Web Speech accumulated any interim text and submit that via the normal
+    // classification path. Falls back to gate-clear if nothing was captured.
+    if (bargeinSafetyTimerRef.current !== null) {
+      clearTimeout(bargeinSafetyTimerRef.current);
+    }
+    bargeinSafetyTimerRef.current = setTimeout(() => {
+      bargeinSafetyTimerRef.current = null;
+      const latest = bargeinLatestTextRef.current.trim();
+      if (latest && latest.split(/\s+/).length >= 2) {
+        bargeinTranscriptFnRef.current?.(latest);
+      } else {
+        setBargeinPhase('idle');
+        void postClearBargein();
+      }
+    }, 25000);
+    setBargeinPhase('listening');
+    // Always fire interrupt when speech is detected — even when the debate is
+    // technically "over" (is_last was received) but TTS is still playing the
+    // final philosopher turn. The server broadcasts stop_audio unconditionally
+    // and only gates the debate (barge_in_pending) when a question is active.
+    postInterrupt().catch(() => {});
   }, []);
 
   const handleBargeinTranscript = useCallback((text: string): void => {
-    const raw = text.trim();
-    const prevQuestion = submittedQuestionRef.current;
-    const wasDebating = isDebatingRef.current;
+    // Cancel any delayed submit that was queued from a previous classification.
+    // New speech means the previous result is superseded — discard it.
+    if (pendingTimerRef.current !== null) {
+      clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = null;
+    }
+    // Transcript arrived — cancel the safety timer that would have cleared the
+    // gate on timeout (the normal classification path handles gate release now).
+    if (bargeinSafetyTimerRef.current !== null) {
+      clearTimeout(bargeinSafetyTimerRef.current);
+      bargeinSafetyTimerRef.current = null;
+    }
 
-    if (!raw || raw.split(/\s+/).length < 3) {
+    setBargeinPhase('processing');
+
+    const raw = correctPhilosopherNamesPositional(text.trim());
+    const prevQuestion = submittedQuestionRef.current;
+
+    if (!raw || raw.split(/\s+/).length < 2) {
+      setBargeinPhase('idle');
       void postClearBargein();
       return;
     }
 
+    // Mint a token for this classification request. If a newer transcript arrives
+    // before this async chain resolves, the token will no longer match and the
+    // stale result is silently dropped.
+    const myToken = ++classificationTokenRef.current;
+
     void (async () => {
-      // Classify the transcript. We do NOT abort the debate here — POST /api/interrupt
-      // (fired in onSpeechStart) already set barge_in_pending=True on the backend,
-      // which gates GET /api/next-response so no stale philosopher turn can be served
-      // while classification is running. Calling abortDebate() concurrently was
-      // setting current_question_id=None, which caused the gate to be bypassed
-      // (the 404 check fires before the gate), resulting in the display sleeping
-      // for 5 s before picking up the new debate. startDebate() already calls
-      // DELETE /api/question internally before POST /api/question, so the abort
-      // happens atomically with the new question submission.
-      const classification = await postClassifyBargein(raw, prevQuestion);
+      try {
+        // Classify the transcript. We do NOT abort the debate here — POST /api/interrupt
+        // (fired in onSpeechStart) already set barge_in_pending=True on the backend,
+        // which gates GET /api/next-response so no stale philosopher turn can be served
+        // while classification is running. startDebate() calls DELETE /api/question
+        // internally before POST /api/question, so the abort happens atomically with
+        // the new question submission.
+        const classification = await postClassifyBargein(raw, prevQuestion);
 
-      if (!classification) {
-        // LLM failure — submit the raw text directly as a new question rather than
-        // silently discarding it. Better to misroute than to drop real audience input.
-        void startDebate(raw, true, true);
-        return;
-      }
+        // Drop stale result — a newer transcript arrived while we were classifying.
+        // The newer call is responsible for releasing the gate.
+        if (myToken !== classificationTokenRef.current) return;
 
-      if (classification.likely_echo) {
-        if (wasDebating && prevQuestion) {
-          void startDebate(prevQuestion, true, false);
+        // Build the action to run after the submit delay.  Capturing all values now
+        // (before the timer fires) ensures the closure sees consistent state.
+        let doSubmit: () => void;
+
+        if (!classification) {
+          // LLM failure — submit the raw text directly rather than silently discarding.
+          doSubmit = () => { void startDebate(raw, true, true, undefined, false, undefined, raw); };
+
         } else {
-          void postClearBargein();
+          const { type, corrected_text, instruction_part, addressed_to } = classification;
+          // addressed_to is resolved by the classification LLM — handles any phrasing,
+          // not just leading-name format ("I have a question for Flusser" → "Flusser").
+          const addressed = addressed_to ?? null;
+
+          if (type === 'question') {
+            // Always pass corrected_text as bargeInDisplayText so the pink box on the
+            // display shows the full corrected input (including philosopher name) rather
+            // than whatever the debate engine receives as the question text.
+            doSubmit = () => {
+              setSubmittedQuestion(corrected_text);
+              submittedQuestionRef.current = corrected_text;
+              setLiveInstructions([]);
+              void startDebate(
+                corrected_text, true, true,
+                addressed ?? undefined,
+                addressed != null,
+                undefined,
+                corrected_text,
+              );
+            };
+
+          } else if (type === 'instruction') {
+            // Restart with same question. End after addressed philosopher if instruction
+            // contains exclusivity words ("only", "just", "alone").
+            const instrText = instruction_part ?? corrected_text;
+            const q = prevQuestion || corrected_text;
+            const endAfter = addressed != null && /\bonly\b|\bjust\b|\balone\b/i.test(instrText);
+            doSubmit = () => {
+              submittedQuestionRef.current = q;
+              setLiveInstructions([corrected_text]);
+              void startDebate(q, true, true, addressed ?? undefined, endAfter, instrText, corrected_text);
+            };
+
+          } else {
+            // 'both': new question, addressed philosopher answers alone then idle.
+            const instrText = instruction_part ?? corrected_text;
+            doSubmit = () => {
+              setSubmittedQuestion(corrected_text);
+              submittedQuestionRef.current = corrected_text;
+              setLiveInstructions([]);
+              void startDebate(corrected_text, true, true, addressed ?? undefined, true, instrText, corrected_text);
+            };
+          }
         }
-        return;
-      }
 
-      const { type, corrected_text, question_part, instruction_part, addressed_to } = classification;
-      // addressed_to is resolved by the classification LLM — it handles any phrasing,
-      // not just leading-name format ("I have a question for Flusser" → "Flusser").
-      const addressed = addressed_to ?? null;
+        // Delay the submit so the speaker can add more to their question, and so the
+        // operator can see the corrected text before it goes live.  New speech arriving
+        // in this window will cancel the timer (see top of this callback).
+        pendingTimerRef.current = setTimeout(() => {
+          pendingTimerRef.current = null;
+          setBargeinPhase('idle');
+          doSubmit();
+        }, BARGE_IN_SUBMIT_DELAY_MS);
 
-      if (type === 'question') {
-        const q = corrected_text;
-        setSubmittedQuestion(q);
-        submittedQuestionRef.current = q;
-        setLiveInstructions([]);
-        setIsPreparingQuestion(false);
-        // If the question is directed at a specific philosopher, that philosopher
-        // answers alone then the session goes idle.
-        void startDebate(q, true, true, addressed ?? undefined, addressed != null ? true : false);
-
-      } else if (type === 'instruction') {
-        // Instruction: restart with same question.
-        // End after addressed philosopher if instruction contains exclusivity words ("only", "just", "alone").
-        // Otherwise debate continues so the addressed philosopher speaks first then others join.
-        // Everything is sent atomically in POST /api/question — no race condition.
-        const instrText = instruction_part ?? corrected_text;
-        const q = prevQuestion || corrected_text;
-        const endAfter = addressed != null && /\bonly\b|\bjust\b|\balone\b/i.test(instrText);
-        void startDebate(q, true, true, addressed ?? undefined, endAfter, instrText, corrected_text);
-        setLiveInstructions([corrected_text]);
-
-      } else {
-        // 'both': new question, addressed philosopher answers alone then idle.
-        // Everything atomic in POST /api/question.
-        const instrText = instruction_part ?? corrected_text;
-        setSubmittedQuestion(corrected_text);
-        submittedQuestionRef.current = corrected_text;
-        setLiveInstructions([]);
-        setIsPreparingQuestion(false);
-        void startDebate(corrected_text, true, true, addressed ?? undefined, true, instrText, corrected_text);
+      } catch {
+        // Unexpected exception — release the barge-in gate so the debate can resume.
+        // Without this, barge_in_pending stays true for 10 s until the backend times out.
+        setBargeinPhase('idle');
+        void postClearBargein();
       }
     })();
-  }, [abortDebate, startDebate]);
+  }, [startDebate]);
+
+  // Whisper path: receive audio blob from the hook, transcribe via backend,
+  // fall back to Web Speech text if Whisper is unavailable or fails.
+  const handleBargeinAudio = useCallback((_blob: Blob, fallbackText: string): void => {
+    // Audio collected — cancel the safety timer; the classification path now
+    // owns gate release. Use the Web Speech fallback text directly (skip Groq).
+    if (bargeinSafetyTimerRef.current !== null) {
+      clearTimeout(bargeinSafetyTimerRef.current);
+      bargeinSafetyTimerRef.current = null;
+    }
+    if (!fallbackText.trim()) {
+      setBargeinPhase('idle');
+      void postClearBargein();
+      return;
+    }
+    handleBargeinTranscript(fallbackText);
+  }, [handleBargeinTranscript]);
+
+  // Keep bargeinTranscriptFnRef in sync so the safety timer can call it
+  // without a forward-reference dependency from handleBargeinSpeechStart.
+  useEffect(() => { bargeinTranscriptFnRef.current = handleBargeinTranscript; }, [handleBargeinTranscript]);
 
   const { micState, interimTranscript } = useVoiceInput({
     isAudioPlaying: false,
     enabled: bargeinEnabled && !micMuted && !isListening,
     onSpeechStart: handleBargeinSpeechStart,
     onTranscriptReady: handleBargeinTranscript,
+    onAudioReady: handleBargeinAudio,
   });
+
+  // Track latest non-empty Web Speech text for the safety timer fallback.
+  useEffect(() => {
+    if (interimTranscript.trim()) bargeinLatestTextRef.current = interimTranscript;
+  }, [interimTranscript]);
+
+  // Push micState to the backend whenever it changes so the philosopher-app
+  // display can show the correct indicator color without local mic access.
+  useEffect(() => {
+    void postMicState(micState);
+  }, [micState]);
 
   function handleSubmit(question: string): void {
     if (!question.trim() || isDebating) return;
@@ -187,11 +394,47 @@ function App() {
   }
 
   function handleHardReset(): void {
+    if (pendingTimerRef.current !== null) {
+      clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = null;
+    }
+    if (bargeinSafetyTimerRef.current !== null) {
+      clearTimeout(bargeinSafetyTimerRef.current);
+      bargeinSafetyTimerRef.current = null;
+    }
+    classificationTokenRef.current += 1;
     void postHardReset();
     setIsFastForwarding(false);
     setUserQuestion('');
     setLiveInstructions([]);
-    setIsPreparingQuestion(false);
+    setBargeinPhase('idle');
+  }
+
+  function handleClearQuestion(): void {
+    void postHardReset();
+    void postClearQuestion();
+    setIsFastForwarding(false);
+    setUserQuestion('');
+    setLiveInstructions([]);
+    setBargeinPhase('idle');
+  }
+
+  function handleTotalReset(): void {
+    if (pendingTimerRef.current !== null) {
+      clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = null;
+    }
+    if (bargeinSafetyTimerRef.current !== null) {
+      clearTimeout(bargeinSafetyTimerRef.current);
+      bargeinSafetyTimerRef.current = null;
+    }
+    classificationTokenRef.current += 1;
+    setBargeinPhase('idle');
+    setUserQuestion('');
+    setSubmittedQuestion('');
+    setLiveInstructions([]);
+    setIsFastForwarding(false);
+    void postTotalReset();
   }
 
   useEffect(() => {
@@ -211,10 +454,10 @@ function App() {
       if (e.key.toUpperCase() === 'V') void postToggleTtsMute();
       if (e.key.toUpperCase() === 'C') void postCreditsToggle();
       if (e.key.toUpperCase() === 'H') void postClearHistory();
-      if (e.key.toUpperCase() === 'Z') void postClearQuestion();
+      if (e.key.toUpperCase() === 'Z') handleClearQuestion();
       if (e.key.toUpperCase() === 'D') void postDeactivateTalking();
       if (e.key.toUpperCase() === 'R' && isDebating) void postRoundUp();
-      if (e.key.toUpperCase() === 'X') setMicMuted((m) => { void postMicState(m); return !m; });
+      if (e.key.toUpperCase() === 'X') setMicMuted((m) => !m);
       if (e.key.toUpperCase() === 'B') void postBoot();
     };
 
@@ -263,9 +506,12 @@ function App() {
           {isPausePending
             ? '[ pause pending — finishing current speaker ]'
             : isDebating
-              ? `[ debating${submittedQuestion ? `: "${submittedQuestion}"` : ''} ]`
-              : '[ idle — waiting for question ]'}
-          {isPreparingQuestion && ' — processing barge-in...'}
+              ? `[ debating${displayedQuestion ? `: "${displayedQuestion}"` : ''} ]`
+              : bargeinPhase === 'listening'
+                ? '[ listening... ]'
+                : bargeinPhase === 'processing'
+                  ? '[ processing... ]'
+                  : '[ idle — waiting for question ]'}
         </span>
       </div>
 
@@ -291,6 +537,15 @@ function App() {
 
       {/* Button grid */}
       <div className={styles.buttonGrid}>
+
+        {/* Emergency reset — clears ALL state including history */}
+        <button
+          className={styles.totalResetButton}
+          onClick={handleTotalReset}
+          title="Nuclear reset: clears all state, history, and pending inputs. Use when system is stuck."
+        >
+          TOTAL RESET
+        </button>
 
         {/* Row 1: Image sets */}
         <div className={styles.buttonRow}>
@@ -323,7 +578,7 @@ function App() {
 
           <button
             className={`${styles.gridBtn} ${micMuted ? styles.gridBtnActiveRed : ''}`}
-            onClick={() => { const newMuted = !micMuted; setMicMuted(newMuted); void postMicState(!newMuted); }}
+            onClick={() => setMicMuted((m) => !m)}
             title="Mute/unmute barge-in microphone (shortcut: X)"
           >
             <div className={styles.gridBtnSymbol}>X</div>
@@ -356,7 +611,7 @@ function App() {
 
           <button
             className={styles.gridBtn}
-            onClick={() => void postClearQuestion()}
+            onClick={handleClearQuestion}
             title="Clear question from display (shortcut: Z)"
           >
             <div className={styles.gridBtnSymbol}>Z</div>

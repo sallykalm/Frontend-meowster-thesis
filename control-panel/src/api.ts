@@ -26,6 +26,30 @@ const LONG_POLL_TIMEOUT_MS = 100_000;
 const MAX_504_RETRIES = 6;
 const BACKOFF_INITIAL_MS = 500;
 const BACKOFF_MAX_MS = 5_000;
+const RETRY_DELAY_MS = 300;
+
+/**
+ * Fire-and-retry POST helper for idempotent endpoints.
+ * Creates a fresh AbortSignal.timeout per attempt so a timed-out first attempt
+ * doesn't poison the retry. Returns the Response on the first success, or null
+ * after all retries are exhausted.
+ */
+async function postWithRetry(
+  url: string,
+  init: Omit<RequestInit, 'signal'> = {},
+  retries: number = 1,
+): Promise<Response | null> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    } catch {
+      if (attempt < retries) {
+        await new Promise<void>((res) => setTimeout(res, RETRY_DELAY_MS));
+      }
+    }
+  }
+  return null;
+}
 
 export interface HealthResponse {
   status: string;
@@ -53,15 +77,8 @@ export async function fetchHealth(): Promise<HealthResponse | null> {
  * Returns true if accepted, false if barge-in is disabled or no debate is active.
  */
 export async function postInterrupt(): Promise<boolean> {
-  try {
-    const response = await fetch(`${BASE_URL}interrupt`, {
-      method: 'POST',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
+  const response = await postWithRetry(`${BASE_URL}interrupt`, { method: 'POST' }, 3);
+  return response?.ok ?? false;
 }
 
 /** Fetches the list of available philosopher names. Returns null on network error or non-200. */
@@ -242,15 +259,13 @@ export async function postLiveInstruction(
   }
 }
 
-export async function postMicState(active: boolean): Promise<void> {
-  try {
-    await fetch(`${BASE_URL}mic-state`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ active }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-  } catch { /* non-fatal */ }
+export async function postMicState(state: string): Promise<void> {
+  const active = state === 'warming' || state === 'ready' || state === 'speaking';
+  await postWithRetry(
+    `${BASE_URL}mic-state`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active, state }) },
+    1,
+  );
 }
 
 export interface BargeInClassification {
@@ -258,7 +273,6 @@ export interface BargeInClassification {
   corrected_text: string;
   question_part: string | null;
   instruction_part: string | null;
-  likely_echo: boolean;
   addressed_to: string | null;
 }
 
@@ -331,6 +345,15 @@ export async function postSoftPause(): Promise<void> {
 export async function postHardReset(): Promise<void> {
   try {
     await fetch(`${BASE_URL}hard-reset`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch { /* non-fatal */ }
+}
+
+export async function postTotalReset(): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}total-reset`, {
       method: 'POST',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
@@ -432,10 +455,73 @@ export async function postBoot(): Promise<void> {
 
 /** Releases the barge-in gate when a barge-in is discarded without action. */
 export async function postClearBargein(): Promise<void> {
+  await postWithRetry(`${BASE_URL}clear-bargein`, { method: 'POST' }, 1);
+}
+
+// Converts any browser-decodable audio blob to a 16 kHz mono WAV.
+// WAV (RIFF PCM) is universally accepted by Whisper APIs and has no container
+// issues — sidesteps every MediaRecorder WebM finalization problem.
+async function toWav(blob: Blob): Promise<Blob> {
+  const ctx = new AudioContext({ sampleRate: 16_000 });
   try {
-    await fetch(`${BASE_URL}clear-bargein`, {
+    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const mono = new Float32Array(buf.length);
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+      const ch = buf.getChannelData(c);
+      for (let i = 0; i < buf.length; i++) mono[i] += ch[i];
+    }
+    if (buf.numberOfChannels > 1) {
+      for (let i = 0; i < mono.length; i++) mono[i] /= buf.numberOfChannels;
+    }
+    const pcm = new Int16Array(mono.length);
+    for (let i = 0; i < mono.length; i++) {
+      pcm[i] = Math.round(Math.max(-1, Math.min(1, mono[i])) * 0x7fff);
+    }
+    const header = new DataView(new ArrayBuffer(44));
+    const wr = (off: number, s: string) => { for (let i = 0; i < s.length; i++) header.setUint8(off + i, s.charCodeAt(i)); };
+    wr(0, 'RIFF'); header.setUint32(4, 36 + pcm.byteLength, true);
+    wr(8, 'WAVE'); wr(12, 'fmt '); header.setUint32(16, 16, true);
+    header.setUint16(20, 1, true);          // PCM
+    header.setUint16(22, 1, true);          // mono
+    header.setUint32(24, 16_000, true);     // sample rate
+    header.setUint32(28, 32_000, true);     // byte rate (16000 * 1 * 2)
+    header.setUint16(32, 2, true);          // block align
+    header.setUint16(34, 16, true);         // bits per sample
+    wr(36, 'data'); header.setUint32(40, pcm.byteLength, true);
+    return new Blob([header.buffer, pcm.buffer], { type: 'audio/wav' });
+  } finally {
+    await ctx.close();
+  }
+}
+
+/**
+ * Sends a raw audio blob to the backend for Whisper transcription.
+ * The backend calls OpenAI or Groq Whisper with philosopher-name vocabulary priming.
+ * Returns the transcript string, or null if unavailable (no API key, network error, etc.).
+ * Callers should fall back to the Web Speech API text when null is returned.
+ */
+export async function postTranscribe(blob: Blob): Promise<string | null> {
+  try {
+    let audio = blob;
+    let filename = 'audio.webm';
+    try {
+      audio = await toWav(blob);
+      filename = 'audio.wav';
+    } catch {
+      // Conversion failed (e.g. blob is corrupt) — send original and let the
+      // backend/Groq decide. The backend now passes unknown formats to Groq anyway.
+    }
+    const form = new FormData();
+    form.append('audio', audio, filename);
+    const response = await fetch(`${BASE_URL}transcribe`, {
       method: 'POST',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      body: form,
+      signal: AbortSignal.timeout(15_000),
     });
-  } catch { /* non-fatal */ }
+    if (!response.ok) return null;
+    const data = await response.json() as { transcript: string };
+    return data.transcript?.trim() || null;
+  } catch {
+    return null;
+  }
 }

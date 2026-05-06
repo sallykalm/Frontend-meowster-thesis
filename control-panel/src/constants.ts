@@ -41,9 +41,10 @@ export const TYPEWRITER_SPEED_BY_PHILOSOPHER: Record<string, number> = {
 // Speech recognition
 export const SPEECH_LANGUAGE = 'en-US';
 
-// Barge-in: short pause (ms) before auto-submitting a captured transcript,
-// so the user can see what was transcribed before the question is sent.
-export const BARGE_IN_SUBMIT_DELAY_MS = 800;
+// Barge-in: pause (ms) after classification before submitting the question.
+// Gives the speaker time to add more, and lets the operator see what was
+// captured. New speech arriving within the window cancels the pending submit.
+export const BARGE_IN_SUBMIT_DELAY_MS = 3000;
 
 // Philosopher names used for audience question targeting chips
 export const PHILOSOPHER_NAMES = ['Flusser', 'Virilio', 'Weizenbaum', 'Weibel'] as const;

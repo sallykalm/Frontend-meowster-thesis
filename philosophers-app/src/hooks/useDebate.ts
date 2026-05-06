@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { submitQuestion, getNextResponse, clearQuestion, postLiveInstruction, postCorrectTranscript } from '../api';
 import type { ApiResponse } from '../api';
 import { BASE_URL, MAX_LINE_LENGTH, SUBTITLE_CLEAR_DELAY_MS, FINISHED_LINES_KEPT } from '../constants';
@@ -109,6 +109,7 @@ interface UseDebateReturn {
   clearPrefetch: () => void;
   clearHistory: () => void;
   ragRelevanceMap: Record<string, number | null>;
+  notifyQuestionId: (id: string | null) => void;
 }
 
 export function useDebate(): UseDebateReturn {
@@ -160,6 +161,22 @@ export function useDebate(): UseDebateReturn {
   // Tracks the last philosopher who completed a turn — used as STT correction context.
   const lastPhilosopherRef = useRef<string | null>(null);
 
+  // P1.12: stale-loop detection. Holds the current question_id from useStatus;
+  // cleared to null when is_last fires so natural idle doesn't trip the check.
+  const activeQuestionIdRef = useRef<string | null>(null);
+  // Updated whenever the passive loop starts fresh or receives a real response.
+  const lastResponseTimeRef = useRef<number>(0);
+
+  const notifyQuestionId = useCallback((id: string | null) => {
+    if (id !== activeQuestionIdRef.current) {
+      activeQuestionIdRef.current = id;
+      if (id !== null) {
+        // Reset the stale timer so the loop has 30 s to pick up responses.
+        lastResponseTimeRef.current = Date.now();
+      }
+    }
+  }, []);
+
   function resolveQuestionTypewriter(): void {
     questionTypewriterResolveRef.current?.();
     questionTypewriterResolveRef.current = null;
@@ -188,13 +205,19 @@ export function useDebate(): UseDebateReturn {
         setIsAudioPlaying(false);
         res();
       }, { once: true });
-      audio.play().catch((e: unknown) => {
-        console.error('Audio play() rejected:', e);
-        currentAudioRef.current = null;
-        audioResolveRef.current = null;
-        setIsAudioPlaying(false);
-        res();
-      });
+      // Start muted so play() succeeds without a user gesture (browser autoplay
+      // policy blocks unmuted autoplay on display windows with no prior interaction),
+      // then unmute immediately once playback has started.
+      audio.muted = true;
+      audio.play()
+        .then(() => { audio.muted = false; })
+        .catch((e: unknown) => {
+          console.error('Audio play() rejected:', e);
+          currentAudioRef.current = null;
+          audioResolveRef.current = null;
+          setIsAudioPlaying(false);
+          res();
+        });
     });
   }
 
@@ -348,6 +371,7 @@ export function useDebate(): UseDebateReturn {
    * interruption and cut audio at the exact timestamp the backend computed.
    */
   async function processSubtitleTurn(data: ApiResponse, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return;
     // Cancel any pending clear from the previous turn
     if (subtitleClearTimerRef.current !== null) {
       clearTimeout(subtitleClearTimerRef.current);
@@ -372,22 +396,28 @@ export function useDebate(): UseDebateReturn {
       });
     });
 
-    audio.play().catch(async (e: unknown) => {
-      console.error('Audio play() rejected:', e);
-      // Abort the turn controller so every waitForAudioTime call unblocks immediately.
-      // Without this, the rAF loop spins forever when play() fails because
-      // audio.currentTime never advances, audio.ended stays false, and audio.error is null.
-      turnController.abort();
-      const resolve = audioResolveRef.current;
-      audioResolveRef.current = null;
-      currentAudioRef.current = null;
-      setIsAudioPlaying(false);
-      // Fallback: keep text visible for the expected audio duration so responses
-      // don't flash and disappear when autoplay is blocked by the browser.
-      const durationMs = (data.subtitles?.at(-1)?.end ?? 4) * 1000;
-      await sleepAbortable(Math.min(durationMs, 10_000), signal);
-      resolve?.();
-    });
+    // Start muted so play() succeeds without a user gesture (browser autoplay
+    // policy blocks unmuted autoplay on display windows with no prior interaction),
+    // then unmute immediately once playback has started.
+    audio.muted = true;
+    audio.play()
+      .then(() => { audio.muted = false; })
+      .catch(async (e: unknown) => {
+        console.error('Audio play() rejected:', e);
+        // Abort the turn controller so every waitForAudioTime call unblocks immediately.
+        // Without this, the rAF loop spins forever when play() fails because
+        // audio.currentTime never advances, audio.ended stays false, and audio.error is null.
+        turnController.abort();
+        const resolve = audioResolveRef.current;
+        audioResolveRef.current = null;
+        currentAudioRef.current = null;
+        setIsAudioPlaying(false);
+        // Fallback: keep text visible for the expected audio duration so responses
+        // don't flash and disappear when autoplay is blocked by the browser.
+        const durationMs = (data.subtitles?.at(-1)?.end ?? 4) * 1000;
+        await sleepAbortable(Math.min(durationMs, 10_000), signal);
+        resolve?.();
+      });
 
     // Ensure a prefetch promise exists. For TTS turns where the philosopher
     // changes, an early prefetch was already started in processPhilosopherTurn
@@ -519,6 +549,7 @@ export function useDebate(): UseDebateReturn {
    * enable mid-stream interruption detection.
    */
   async function processTypewriterTurn(data: ApiResponse, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return;
     const audioPromise = data.audio_url ? playAudioTracked(data.audio_url) : Promise.resolve();
 
 
@@ -723,6 +754,7 @@ export function useDebate(): UseDebateReturn {
     setCurrentPhilosopher(null);
     setThinkingName(null);
     setInterruptingName(null);
+    setRagRelevanceMap({});
     setIsDebating(false);
     setFinishedLines([]);
     setCurrentLine(null);
@@ -749,9 +781,15 @@ export function useDebate(): UseDebateReturn {
 
   /** Force all philosopher GIFs back to idle. Called when deactivate_talking_seq increments. */
   function deactivateTalking(): void {
+    stopCurrentAudio();
+    clearPrefetch();
+    turnInterruptedRef.current = true;
+    setCurrentLine((prev) => (prev ? { ...prev, interrupted: true } : prev));
     setCurrentPhilosopher(null);
     setThinkingName(null);
     setInterruptingName(null);
+    setRagRelevanceMap({});
+    startPassiveLoop();
   }
 
   /**
@@ -806,6 +844,8 @@ export function useDebate(): UseDebateReturn {
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
     const { signal } = abortRef.current;
+    // Reset stale timer so a newly started loop gets a full 30 s window.
+    lastResponseTimeRef.current = Date.now();
 
     let lastPhilosopher: string | null = null;
 
@@ -820,12 +860,24 @@ export function useDebate(): UseDebateReturn {
         }
 
         if (!data) {
-          // Idle: no active debate. Back off for 5 s before retrying so the
-          // server log stays quiet when no question has been submitted.
-          if (!signal.aborted) await sleepAbortable(5000, signal);
+          // Stale-loop detection: if a question is active but no response has
+          // arrived for > 30 s, the loop likely lost sync — restart it.
+          if (
+            activeQuestionIdRef.current !== null &&
+            Date.now() - lastResponseTimeRef.current > 30_000
+          ) {
+            console.warn('[passive-loop] stale: no response in 30 s with active question — restarting');
+            startPassiveLoop();
+            return;
+          }
+          // Idle: no active debate. Short backoff so the loop picks up a newly
+          // submitted question quickly (e.g. after a barge-in that starts a
+          // fresh debate while the loop was sleeping).
+          if (!signal.aborted) await sleepAbortable(1000, signal);
           continue;
         }
 
+        lastResponseTimeRef.current = Date.now();
         setIsDebating(true);
         await processPhilosopherTurn(data, lastPhilosopher, signal);
 
@@ -858,6 +910,9 @@ export function useDebate(): UseDebateReturn {
           setInterruptingName(null);
           setIsDebating(false);
           lastPhilosopher = null;
+          // Debate ended naturally — clear the question ID so idle polling after
+          // is_last doesn't trigger the stale-loop restart check.
+          activeQuestionIdRef.current = null;
           continue; // loop stays alive; polls idle (404 → 5 s sleep) until next debate
         }
       }
@@ -901,5 +956,6 @@ export function useDebate(): UseDebateReturn {
     clearPrefetch,
     clearHistory,
     ragRelevanceMap,
+    notifyQuestionId,
   };
 }
