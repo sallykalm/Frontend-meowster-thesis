@@ -59,6 +59,10 @@ const Credits = ({ onClose }: CreditsProps) => {
           </div>
 
           <div className={styles.entry}>
+            <div className={styles.name}>Karin Hellström</div>
+            <span>Project Factotum, Chalmers University</span>
+          </div>
+          <div className={styles.entry}>
             <div className={styles.name}>Jakob Dahl</div>
             <span>Music</span>
           </div>
@@ -69,23 +73,23 @@ const Credits = ({ onClose }: CreditsProps) => {
         <div className={styles.bottomRow}>
           <div className={styles.section}>
             <div className={styles.sectionTitle}>Philosophers</div>
-            <div className={styles.entry}>Vilém Flusser <span>(1920 – 1991)</span></div>
-            <div className={styles.entry}>Joseph Weizenbaum <span>(1923 – 2008)</span></div>
-            <div className={styles.entry}>Paul Virilio <span>(1932 – 2018)</span></div>
-            <div className={styles.entry}>Peter Weibel <span>(1944 – 2023)</span></div>
-          </div>
-
-          <div className={styles.qrBlock}>
-            <div className={styles.qrLabel}>Scan to fill out the survey:</div>
-            <img
-              className={styles.qrImage}
-              src="/images/qr-survey.png"
-              alt="Survey QR code"
-            />
+            <div className={styles.entry}>Vilém Flusser (1920 – 1991)</div>
+            <div className={styles.entry}>Joseph Weizenbaum (1923 – 2008)</div>
+            <div className={styles.entry}>Paul Virilio (1932 – 2018)</div>
+            <div className={styles.entry}>Peter Weibel (1944 – 2023)</div>
           </div>
         </div>
 
         <div className={styles.divider}>{'─'.repeat(48)}</div>
+
+        <div className={styles.qrBlock}>
+          <div className={styles.qrLabel}>Scan to fill out the survey:</div>
+          <img
+            className={styles.qrImage}
+            src="/images/qr-survey.png"
+            alt="Survey QR code"
+          />
+        </div>
 
         <div className={styles.venue}>
           First public demonstration · Wisdome, Göteborg, Sweden
